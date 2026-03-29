@@ -1,0 +1,114 @@
+<mxfile host="app.diagrams.net" modified="2026-03-17T19:07:30.000Z" agent="Cursor" version="24.7.8">
+  <diagram id="seq-1" name="Sequence - Add Build to Cart">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- Lifelines -->
+        <mxCell id="u" value="Пользователь" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="140" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="app" value="Android App&#10;MainActivity" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="240" y="60" width="170" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="api" value="BuildsApi" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="470" y="60" width="150" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="backend" value="Backend&#10;/api/builds/:id/cart" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="680" y="60" width="220" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="db" value="PostgreSQL&#10;cart_items / build_components" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="950" y="60" width="200" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- lifeline dashed lines -->
+        <mxCell id="u_line" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;" edge="1" parent="1" source="u" target="u">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="120" as="sourcePoint"/>
+            <mxPoint x="110" y="740" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="app_line" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;" edge="1" parent="1" source="app" target="app">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="325" y="120" as="sourcePoint"/>
+            <mxPoint x="325" y="740" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="api_line" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;" edge="1" parent="1" source="api" target="api">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="545" y="120" as="sourcePoint"/>
+            <mxPoint x="545" y="740" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="backend_line" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;" edge="1" parent="1" source="backend" target="backend">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="790" y="120" as="sourcePoint"/>
+            <mxPoint x="790" y="740" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="db_line" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;" edge="1" parent="1" source="db" target="db">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1050" y="120" as="sourcePoint"/>
+            <mxPoint x="1050" y="740" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Messages -->
+        <mxCell id="m1" value="Нажимает&#10;«Добавить сборку в корзину»" style="endArrow=block;html=1;strokeColor=#333333;" edge="1" parent="1" source="u" target="app">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="110" y="170" as="sourcePoint"/>
+            <mxPoint x="325" y="170" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m2" value="addBuildToCart(token, buildId)" style="endArrow=block;html=1;strokeColor=#333333;" edge="1" parent="1" source="app" target="api">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="325" y="230" as="sourcePoint"/>
+            <mxPoint x="545" y="230" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m3" value="POST /api/builds/:id/cart" style="endArrow=block;html=1;strokeColor=#333333;" edge="1" parent="1" source="api" target="backend">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="545" y="290" as="sourcePoint"/>
+            <mxPoint x="790" y="290" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m4" value="SELECT build_components&#10;WHERE build_id = :id" style="endArrow=block;html=1;strokeColor=#333333;" edge="1" parent="1" source="backend" target="db">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="790" y="350" as="sourcePoint"/>
+            <mxPoint x="1050" y="350" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m5" value="INSERT/UPSERT cart_items&#10;(+ quantity)" style="endArrow=block;html=1;strokeColor=#333333;" edge="1" parent="1" source="backend" target="db">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="790" y="410" as="sourcePoint"/>
+            <mxPoint x="1050" y="410" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m6" value="201 Created" style="endArrow=block;html=1;strokeColor=#333333;dashed=1;" edge="1" parent="1" source="backend" target="api">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="790" y="480" as="sourcePoint"/>
+            <mxPoint x="545" y="480" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m7" value="Success" style="endArrow=block;html=1;strokeColor=#333333;dashed=1;" edge="1" parent="1" source="api" target="app">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="545" y="540" as="sourcePoint"/>
+            <mxPoint x="325" y="540" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m8" value="Показывает Snackbar&#10;и обновляет корзину (loadCart)" style="endArrow=block;html=1;strokeColor=#333333;" edge="1" parent="1" source="app" target="u">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="325" y="600" as="sourcePoint"/>
+            <mxPoint x="110" y="600" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Notes -->
+        <mxCell id="note1" value="Важно: даже если сборка неполная,&#10;добавление в корзину не блокируется&#10;(показывается предупреждение о нехватке)." style="shape=note;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="240" y="650" width="410" height="80" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

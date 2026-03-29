@@ -1,0 +1,118 @@
+<mxfile host="app.diagrams.net" modified="2026-03-17T19:07:00.000Z" agent="Cursor" version="24.7.8">
+  <diagram id="usecase-1" name="Use Case">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- Actors -->
+        <mxCell id="actor_user" value="Пользователь" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="170" width="60" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="actor_ai" value="ИИ (чат)" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="360" width="60" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="actor_backend" value="Backend API" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="260" width="80" height="120" as="geometry"/>
+        </mxCell>
+
+        <!-- System boundary -->
+        <mxCell id="boundary" value="DipProg (мобильное приложение)" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;strokeColor=#444444;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="160" y="90" width="820" height="560" as="geometry"/>
+        </mxCell>
+
+        <!-- Use cases -->
+        <mxCell id="uc_builds" value="Управлять сборками&#10;(создать/удалить/просмотреть)" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="130" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_pick" value="Добавить комплектующие&#10;в сборку" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="220" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_compat" value="Проверить совместимость&#10;сборки" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="520" y="130" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_remove_incompat" value="Удалить несовместимый&#10;компонент (выборочно)" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="520" y="220" width="260" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_qty" value="Просмотреть количество&#10;компонентов (×N)" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="310" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_component_detail" value="Просмотреть детали&#10;компонента" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="520" y="310" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_missing" value="Получить предупреждение&#10;о нехватке комплектующих" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="400" width="280" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_add_comp_cart" value="Добавить компонент&#10;в корзину" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="560" y="400" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_add_build_cart" value="Добавить сборку&#10;в корзину" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="560" y="490" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_view_cart" value="Просмотреть корзину&#10;(отдельная вкладка)" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="490" width="260" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_chat_ai" value="Чат с ИИ и&#10;подбор сборок" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="520" y="580" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="uc_theme" value="Сменить тему&#10;(с сохранением плиток)" style="ellipse;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="580" width="260" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- Associations: user -->
+        <mxCell id="e_u_builds" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_user" target="uc_builds">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_u_pick" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_user" target="uc_pick">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_u_compat" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_user" target="uc_compat">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_u_remove" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_user" target="uc_remove_incompat">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_u_qty" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_user" target="uc_qty">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_u_detail" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_user" target="uc_component_detail">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_u_missing" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_user" target="uc_missing">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_u_addc" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_user" target="uc_add_comp_cart">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_u_addb" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_user" target="uc_add_build_cart">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_u_cart" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_user" target="uc_view_cart">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_u_theme" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_user" target="uc_theme">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Associations: ai actor -->
+        <mxCell id="e_ai_chat" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_ai" target="uc_chat_ai">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Associations: backend API (supporting use cases) -->
+        <mxCell id="e_b_compat" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_backend" target="uc_compat">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_b_cart1" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_backend" target="uc_add_comp_cart">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_b_cart2" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_backend" target="uc_add_build_cart">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e_b_detail" style="endArrow=none;html=1;strokeColor=#555555;" edge="1" parent="1" source="actor_backend" target="uc_component_detail">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

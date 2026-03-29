@@ -1,0 +1,102 @@
+<mxfile host="app.diagrams.net" modified="2026-03-17T19:08:00.000Z" agent="Cursor" version="24.7.8">
+  <diagram id="logical-1" name="Logical (Class/ER)">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- Client-side logical classes -->
+        <mxCell id="c_main" value="MainActivity&#10;- currentBuildId&#10;- loadCartCallback&#10;+ showPageById()&#10;+ setupBuildsAndCart()&#10;+ addSuggestionCards()&#10;+ showComponentDetailDialog()" style="shape=swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="360" height="220" as="geometry"/>
+        </mxCell>
+        <mxCell id="c_api" value="BuildsApi&#10;+ builds()&#10;+ buildDetail()&#10;+ buildCompatibility()&#10;+ componentDetail()&#10;+ addToCart()&#10;+ addBuildToCart()&#10;+ cart()&#10;+ removeFromBuild()" style="shape=swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="290" width="360" height="220" as="geometry"/>
+        </mxCell>
+        <mxCell id="c_adapter_build" value="BuildComponentsAdapter&#10;- items: List&lt;BuildComponent&gt;&#10;+ onRemove(comp)&#10;+ onComponentClick(comp)" style="shape=swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="40" y="540" width="360" height="160" as="geometry"/>
+        </mxCell>
+
+        <!-- Backend routes -->
+        <mxCell id="b_builds" value="backend/routes/builds.js&#10;GET /api/builds/:id&#10;GET /api/builds/:id/compatibility&#10;POST /api/builds/:id/cart&#10;POST /api/builds/:id/components&#10;DELETE /api/builds/:id/components/:component_id" style="shape=swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="470" y="40" width="330" height="220" as="geometry"/>
+        </mxCell>
+        <mxCell id="b_cart" value="backend/routes/cart.js&#10;GET /api/cart&#10;POST /api/cart&#10;PUT /api/cart/items/:component_id&#10;DELETE /api/cart/items/:component_id" style="shape=swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="470" y="290" width="330" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="b_components" value="backend/routes/components.js&#10;GET /api/components&#10;GET /api/components/:id" style="shape=swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="470" y="490" width="330" height="130" as="geometry"/>
+        </mxCell>
+
+        <!-- DB entities -->
+        <mxCell id="t_builds" value="builds&#10;id (PK)&#10;user_id&#10;name&#10;created_at&#10;updated_at" style="shape=swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="840" y="40" width="290" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_build_components" value="build_components&#10;build_id (FK)&#10;component_id (FK)&#10;quantity" style="shape=swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="840" y="210" width="290" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_cart_items" value="cart_items&#10;user_id (FK)&#10;component_id (FK)&#10;quantity" style="shape=swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="840" y="350" width="290" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_components" value="components&#10;id (PK)&#10;category_id (FK)&#10;name&#10;description&#10;price&#10;specs (json)&#10;image_url&#10;external_url" style="shape=swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="840" y="480" width="290" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="t_categories" value="component_categories&#10;id (PK)&#10;name&#10;slug&#10;sort_order&#10;max_per_build" style="shape=swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="840" y="670" width="290" height="140" as="geometry"/>
+        </mxCell>
+
+        <!-- Relations (client) -->
+        <mxCell id="r1" value="использует" style="endArrow=block;html=1;strokeColor=#666666;" edge="1" parent="1" source="c_main" target="c_api">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="r2" value="передаёт callbacks" style="endArrow=block;html=1;strokeColor=#666666;" edge="1" parent="1" source="c_main" target="c_adapter_build">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Relations (api -> backend) -->
+        <mxCell id="r3" value="HTTP" style="endArrow=block;html=1;strokeColor=#666666;" edge="1" parent="1" source="c_api" target="b_builds">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="r4" value="HTTP" style="endArrow=block;html=1;strokeColor=#666666;" edge="1" parent="1" source="c_api" target="b_cart">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="r5" value="HTTP" style="endArrow=block;html=1;strokeColor=#666666;" edge="1" parent="1" source="c_api" target="b_components">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Relations (backend -> db) -->
+        <mxCell id="d1" value="CRUD" style="endArrow=block;html=1;strokeColor=#666666;" edge="1" parent="1" source="b_builds" target="t_builds">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="d2" value="CRUD" style="endArrow=block;html=1;strokeColor=#666666;" edge="1" parent="1" source="b_builds" target="t_build_components">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="d3" value="CRUD" style="endArrow=block;html=1;strokeColor=#666666;" edge="1" parent="1" source="b_builds" target="t_cart_items">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="d4" value="CRUD" style="endArrow=block;html=1;strokeColor=#666666;" edge="1" parent="1" source="b_cart" target="t_cart_items">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="d5" value="Read" style="endArrow=block;html=1;strokeColor=#666666;" edge="1" parent="1" source="b_components" target="t_components">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="d6" value="Read" style="endArrow=block;html=1;strokeColor=#666666;" edge="1" parent="1" source="b_components" target="t_categories">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ER relations -->
+        <mxCell id="er1" value="1..* (build_id)" style="endArrow=block;html=1;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="t_builds" target="t_build_components">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="er2" value="*..1 (component_id)" style="endArrow=block;html=1;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="t_build_components" target="t_components">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="er3" value="*..1 (component_id)" style="endArrow=block;html=1;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="t_cart_items" target="t_components">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="er4" value="*..1 (category_id)" style="endArrow=block;html=1;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="t_components" target="t_categories">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

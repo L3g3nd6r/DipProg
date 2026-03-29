@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF0F172A</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- Material 3 light -->
+    <color name="md_primary">#4F46E5</color>
+    <color name="md_on_primary">#FFFFFF</color>
+    <color name="md_primary_container">#E0E7FF</color>
+    <color name="md_on_primary_container">#312E81</color>
+
+    <color name="md_secondary">#0891B2</color>
+    <color name="md_on_secondary">#FFFFFF</color>
+    <color name="md_secondary_container">#CFFAFE</color>
+    <color name="md_on_secondary_container">#164E63</color>
+
+    <color name="md_background">#F8FAFC</color>
+    <color name="md_surface">#FFFFFF</color>
+    <color name="md_surface_variant">#F1F5F9</color>
+    <color name="md_on_surface">#0F172A</color>
+    <color name="md_on_surface_variant">#64748B</color>
+    <color name="md_outline">#E2E8F0</color>
+    <color name="md_status_bar">#F8FAFC</color>
+
+    <color name="md_error">#DC2626</color>
+    <color name="md_on_error">#FFFFFF</color>
+
+    <color name="md_warning">#D97706</color>
+    <color name="md_warning_container">#FEF3C7</color>
+
+    <!-- Совместимость со старыми именами в макетах -->
+    <color name="primary">@color/md_primary</color>
+    <color name="primary_dark">#4338CA</color>
+    <color name="accent">@color/md_secondary</color>
+    <color name="background">@color/md_background</color>
+    <color name="background_light">@color/md_background</color>
+    <color name="background_dark">#0B1220</color>
+    <color name="surface">@color/md_surface</color>
+    <color name="surface_variant">@color/md_surface_variant</color>
+    <color name="text_primary">@color/md_on_surface</color>
+    <color name="text_secondary">@color/md_on_surface_variant</color>
+    <color name="bottom_nav_selected">@color/md_primary</color>
+    <color name="bottom_nav_unselected">#94A3B8</color>
+    <color name="card_elevation_tint">@color/md_surface_variant</color>
+    <color name="text_on_user_message_bg">@color/white</color>
+    <color name="text_on_ai_message_bg">@color/md_on_surface</color>
+    <color name="price_highlight">@color/md_secondary</color>
+
+    <color name="bubble_user">@color/md_primary</color>
+    <color name="bubble_ai">@color/md_surface_variant</color>
+    <color name="hero_gradient_start">#6366F1</color>
+    <color name="hero_gradient_end">#8B5CF6</color>
+</resources>

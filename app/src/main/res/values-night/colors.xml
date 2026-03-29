@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="md_primary">#A5B4FC</color>
+    <color name="md_on_primary">#1E1B4B</color>
+    <color name="md_primary_container">#4338CA</color>
+    <color name="md_on_primary_container">#E0E7FF</color>
+
+    <color name="md_secondary">#22D3EE</color>
+    <color name="md_on_secondary">#083344</color>
+    <color name="md_secondary_container">#155E75</color>
+    <color name="md_on_secondary_container">#CFFAFE</color>
+
+    <color name="md_background">#0F172A</color>
+    <color name="md_surface">#1E293B</color>
+    <color name="md_surface_variant">#334155</color>
+    <color name="md_on_surface">#F1F5F9</color>
+    <color name="md_on_surface_variant">#94A3B8</color>
+    <color name="md_outline">#475569</color>
+    <color name="md_status_bar">#0F172A</color>
+
+    <color name="md_error">#F87171</color>
+    <color name="md_on_error">#450A0A</color>
+
+    <color name="md_warning">#FBBF24</color>
+    <color name="md_warning_container">#78350F</color>
+
+    <color name="primary_dark">#312E81</color>
+    <color name="surface_dark">@color/md_surface</color>
+    <color name="surface_variant_dark">@color/md_surface_variant</color>
+    <color name="on_surface_variant_dark">@color/md_on_surface_variant</color>
+    <color name="primary_chat_dark">@color/md_primary</color>
+
+    <color name="text_secondary">@color/md_on_surface_variant</color>
+    <color name="bottom_nav_selected">@color/md_primary</color>
+    <color name="bottom_nav_unselected">#64748B</color>
+    <color name="card_elevation_tint">#1E293B</color>
+    <color name="text_on_ai_message_bg">@color/md_on_surface</color>
+    <color name="text_on_user_message_bg">#FFFFFF</color>
+
+    <color name="bubble_user">@color/md_primary_container</color>
+    <color name="bubble_ai">@color/md_surface_variant</color>
+    <color name="hero_gradient_start">#4F46E5</color>
+    <color name="hero_gradient_end">#7C3AED</color>
+</resources>
