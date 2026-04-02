@@ -114,21 +114,41 @@ app.use(
   createAuthRouter(pool, { jwtSecret: JWT_SECRET, mapUserResponse, authMiddleware })
 );
 
-ensureRuntimeSchema()
-  .then(() => {
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`API запущен на http://localhost:${PORT} (доступ с сети: http://<IP-ПК>:${PORT})`);
-      if (ASSEMBLER_EMAILS.length > 0) {
-        console.log(`Роль сборщика назначена email: ${ASSEMBLER_EMAILS.join(', ')}`);
-      } else {
-        console.log('ASSEMBLER_EMAILS не задан — все пользователи считаются обычными заказчиками');
-      }
-      if (!isProd) {
-        console.log('Режим разработки: JWT_SECRET по умолчанию (для production задайте JWT_SECRET в .env)');
-      }
+// ─── Запуск: обычный (node server.js) или serverless-экспорт (Vercel) ───────
+
+let schemaInitialized = false;
+
+async function initIfNeeded() {
+  if (!schemaInitialized) {
+    await ensureRuntimeSchema();
+    schemaInitialized = true;
+  }
+}
+
+if (require.main === module) {
+  // Локальная разработка / Render / любой обычный хостинг
+  initIfNeeded()
+    .then(() => {
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`API запущен на http://localhost:${PORT} (доступ с сети: http://<IP-ПК>:${PORT})`);
+        if (ASSEMBLER_EMAILS.length > 0) {
+          console.log(`Роль сборщика назначена email: ${ASSEMBLER_EMAILS.join(', ')}`);
+        } else {
+          console.log('ASSEMBLER_EMAILS не задан — все пользователи считаются обычными заказчиками');
+        }
+        if (!isProd) {
+          console.log('Режим разработки: JWT_SECRET по умолчанию (для production задайте JWT_SECRET в .env)');
+        }
+      });
+    })
+    .catch((err) => {
+      console.error('Не удалось инициализировать схему заказов:', err);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error('Не удалось инициализировать схему заказов:', err);
-    process.exit(1);
-  });
+} else {
+  // Serverless-хостинг (Vercel): экспортируем обработчик
+  module.exports = async (req, res) => {
+    await initIfNeeded();
+    app(req, res);
+  };
+}
