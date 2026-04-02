@@ -266,83 +266,126 @@ function finalizeAiComponentIds(catalog, fixed, maxBudgetRub, gpuPrefer, cpuHint
 }
 
 /**
- * Генерирует реальные pros/cons из specs компонентов.
+ * Грубая «ступень» GPU для сравнения баланса с CPU (короткие human-friendly плюсы/минусы).
+ */
+function gpuTierFromName(name) {
+  const n = (name || '').toLowerCase();
+  if (/5090|4090/.test(n)) return 10;
+  if (/5080|4080/.test(n)) return 9;
+  if (/5070\s*ti|4070\s*ti/.test(n)) return 8;
+  if (/5070|4070/.test(n)) return 7;
+  if (/5060\s*ti|4060\s*ti/.test(n)) return 6;
+  if (/5060|4060|4050/.test(n)) return 5;
+  if (/3050|1630|1650/.test(n)) return 4;
+  return 5;
+}
+
+function cpuTierFromName(name) {
+  const n = (name || '').toLowerCase();
+  if (/threadripper|14900ks|7950x|13900ks/.test(n)) return 10;
+  if (/7800x3d|7900x3d|9800x3d/.test(n)) return 9;
+  if (/14700k|13700k|7700x|7600x/.test(n)) return 8;
+  if (/5700x3d|5800x3d/.test(n)) return 8;
+  if (/5600x3d/.test(n)) return 7;
+  if (/5600|5600x|12400|13400|7500f|8600g/.test(n)) return 6;
+  if (/5500|12100|13100|5300/.test(n)) return 5;
+  if (/4100|3000g|3050e/.test(n)) return 4;
+  return 6;
+}
+
+/**
+ * Плюсы/минусы простым языком: сценарий, баланс CPU/GPU, шум БП, ОЗУ, диск.
  */
 function buildProsCons(catalog, ids, workload) {
   const byId = {};
   for (const c of catalog) byId[c.id] = c;
 
-  const cpu = ids.map(id => byId[id]).find(c => c && c.category_slug === 'processors');
-  const mb = ids.map(id => byId[id]).find(c => c && c.category_slug === 'motherboard');
-  const gpu = ids.map(id => byId[id]).find(c => c && c.category_slug === 'gpu');
-  const ram = ids.map(id => byId[id]).find(c => c && c.category_slug === 'ram');
-  const psu = ids.map(id => byId[id]).find(c => c && c.category_slug === 'psu');
-  const storage = ids.map(id => byId[id]).find(c => c && c.category_slug === 'storage');
+  const cpu = ids.map((id) => byId[id]).find((c) => c && c.category_slug === 'processors');
+  const gpu = ids.map((id) => byId[id]).find((c) => c && c.category_slug === 'gpu');
+  const ram = ids.map((id) => byId[id]).find((c) => c && c.category_slug === 'ram');
+  const psu = ids.map((id) => byId[id]).find((c) => c && c.category_slug === 'psu');
+  const storage = ids.map((id) => byId[id]).find((c) => c && c.category_slug === 'storage');
 
   const pros = [];
   const cons = [];
 
-  if (cpu) {
-    const cores = cpu.specs && cpu.specs.cores;
-    const boost = cpu.specs && cpu.specs.boost_ghz;
-    const isX3D = cpu.name.includes('X3D');
-    const isUltra = cpu.name.includes('Ultra');
-    if (isX3D) pros.push(`${cpu.name.split(' ').pop()} с 3D V-Cache — максимальный FPS в играх`);
-    if (cores >= 16) pros.push(`${cores} ядер — отлично для стриминга, монтажа и игр`);
-    else if (cores >= 12) pros.push(`${cores} ядер — комфорт для игр и многозадачности`);
-    else if (cores <= 6 && (workload === 'render' || workload === 'streaming')) cons.push(`${cores} ядер — маловато для ${workload === 'render' ? 'рендеринга' : 'стриминга'}`);
-    if (boost >= 5.5) pros.push(`Частота до ${boost} ГГц — высокий IPC и отзывчивость`);
-    if (isUltra) pros.push('Intel Core Ultra (Arrow Lake) — новое поколение, нативный PCIe 5.0');
+  if (workload === 'render' || workload === 'video_edit') {
+    pros.push('Склонность к рабочим задачам: рендер, монтаж, много потоков');
+  } else if (workload === 'streaming') {
+    pros.push('Подходит под стрим и параллельные задачи в фоне');
+  } else if (workload === '4k') {
+    pros.push('Расчёт на игры и картинку в 4K / высоких настройках');
+  } else {
+    pros.push('Универсально: игры, интернет, повседневные задачи');
+  }
+
+  if (cpu && gpu) {
+    const gt = gpuTierFromName(gpu.name);
+    const ct = cpuTierFromName(cpu.name);
+    if (gt - ct >= 2) {
+      cons.push('Процессор слабее видеокарты — в части игр упрётесь в CPU');
+    } else if (ct - gt >= 2) {
+      cons.push('Видеокарта слабее процессора — чаще упор в GPU, не максимум кадров');
+    } else {
+      pros.push('Проц и видеокарта в одном классе — меньше явных «узких мест»');
+    }
+  }
+
+  if (cpu && String(cpu.name).toLowerCase().includes('x3d')) {
+    pros.push('X3D-процессор — сильнее обычно именно в играх');
   }
 
   if (gpu) {
-    const vram = gpu.specs && gpu.specs.vram_gb;
     const n = gpu.name.toLowerCase();
-    if (vram >= 16) pros.push(`${vram} ГБ VRAM — 4K с текстурами, AI, профессиональные задачи`);
-    else if (vram >= 12) pros.push(`${vram} ГБ VRAM — запас для 1440p и будущих игр`);
-    else if (vram <= 8 && workload === '4k') cons.push(`${vram} ГБ VRAM может не хватить для 4K с высокими текстурами`);
-    if (n.includes('rtx 50')) pros.push('RTX 50 — самая новая архитектура DLSS 4 и Multi Frame Gen');
-    else if (n.includes('rtx')) pros.push('DLSS / DLSS 3 — значительный прирост FPS без потери качества');
-    if (/5090|5080|4090/.test(n)) pros.push('Флагманская карта — 4K Ultra 144+ fps в топовых играх');
-    else if (/5070|4080|5080|4070/.test(n)) pros.push('Высокий класс — отличная производительность в 1440p/4K');
-    if (/5060|4060/.test(n) && workload === '4k') cons.push('Не оптимальна для 4K в тяжёлых играх — лучше 1080p/1440p');
-  }
-
-  if (ram) {
-    const size = ram.specs && ram.specs.size_gb;
-    const type = (ram.specs && ram.specs.type) || '';
-    const speed = ram.specs && ram.specs.speed_mhz;
-    if (size >= 32) pros.push(`${size} ГБ ${type} — с запасом для любых задач + монтаж, стрим`);
-    else if (size >= 16) pros.push(`${size} ГБ ${type} — стандарт для игровых систем`);
-    else if (size < 16 && (workload === 'render' || workload === 'video_edit')) cons.push(`${size} ГБ — маловато для рендеринга / монтажа (рекомендуется 32 ГБ+)`);
-    if (speed >= 6000) pros.push(`DDR5-${speed} — быстрая память, критична для Ryzen AM5`);
-    else if (speed >= 5600) pros.push(`DDR5-${speed} — хорошая скорость для новой платформы`);
-    pros.push('Рекомендуется использовать 2 одинаковых модуля для Dual-Channel');
+    if (/rtx\s*50|rtx\s*40/.test(n)) {
+      pros.push('Современная GeForce — DLSS/кадрген в поддерживаемых играх');
+    }
+    const vram = gpu.specs && gpu.specs.vram_gb;
+    if (vram && vram <= 8 && (workload === '4k' || workload === 'render')) {
+      cons.push('Мало видеопамяти для 4K или тяжёлых сцен — снижайте текстуры');
+    }
   }
 
   if (psu) {
     const eff = (psu.specs && psu.specs.efficiency) || '';
-    if (/Titanium|Platinum/.test(eff)) pros.push(`БП ${eff} — тихий, экономичный, минимум тепловыделения`);
-    else if (/Gold/.test(eff)) pros.push(`БП 80+ Gold — хорошая эффективность`);
+    if (/Titanium|Platinum/.test(eff)) {
+      pros.push('Блок высокого класса — обычно тише и меньше греется');
+    } else if (/Gold/.test(eff)) {
+      pros.push('Нормальный «золотой» блок — адекватный шум и КПД');
+    } else {
+      pros.push('Блок простого класса — шум скорее средний, не «тишина»');
+    }
+  }
+
+  if (ram) {
+    const size = ram.specs && ram.specs.size_gb;
+    if (size >= 32) {
+      pros.push('Много ОЗУ — комфортно с кучей вкладок и тяжёлыми играми');
+    } else if (size >= 16) {
+      pros.push('16 ГБ — норм для игр; для тяжёлого монтажа может быть мало');
+    } else {
+      cons.push('Мало ОЗУ — лучше увеличить, если планируете игры и работу одновременно');
+    }
   }
 
   if (storage) {
     const cap = storage.specs && storage.specs.capacity_gb;
     const iface = (storage.specs && storage.specs.interface) || '';
-    if (/NVMe|PCIe/.test(iface)) pros.push('NVMe SSD — Windows и игры загружаются за секунды');
-    if (cap >= 2000) pros.push(`${cap / 1000} ТБ — много места для большой библиотеки игр`);
-    else if (cap < 500) cons.push(`${cap} ГБ — места мало, скоро закончится при установке игр`);
-  }
-
-  if (mb) {
-    const oc = mb.specs && mb.specs.overclocking;
-    if (oc && (oc.includes('CPU') || oc.includes('XMP') || oc.includes('EXPO'))) {
-      pros.push(`Мат. плата ${mb.specs.chipset} — поддержка ${oc}`);
+    if (/NVMe|PCIe/.test(iface)) {
+      pros.push('Быстрый SSD — система и игры грузятся заметно быстрее');
+    }
+    if (cap != null && cap < 1000) {
+      cons.push('Объём диска скромный — несколько крупных игр и место закончится');
+    } else if (cap >= 2000) {
+      pros.push('Запас по диску — библиотека игр без постоянной чистки');
     }
   }
 
-  if (pros.length === 0) pros.push('Полная совместимость всех компонентов проверена сервером');
-  return { pros, cons };
+  const dedupe = (arr) => [...new Set(arr.filter(Boolean))];
+  let p = dedupe(pros).slice(0, 4);
+  let c = dedupe(cons).slice(0, 3);
+  if (p.length === 0) p.push('Совместимость компонентов проверена');
+  return { pros: p, cons: c };
 }
 
 /**
@@ -893,7 +936,9 @@ function getGpuPreference(msg, normalized) {
   const chip2 = extractGpuChipFuzzy(msg || '');
   const fromMsg = extractGpuSearchString(msg || '', chip2);
   if (fromMsg) return fromMsg.replace(/\s+/g, ' ').trim();
-  const m = (primary || '').match(/\b(rtx\s*)?(3050|3060|3070|3080|3090|4060|4070|4080|4090|rx\s*7600|rx\s*7700|rx\s*7800|rx\s*7900)\b/i);
+  const m = (primary || '').match(
+    /\b(rtx\s*)?(3050|3060|3070|3080|3090|4050|4060|4070|4080|4090|5050|5060|5070|5080|5090|rx\s*7600|rx\s*7700|rx\s*7800|rx\s*7900)\b/i
+  );
   if (m) return m[0].replace(/\s+/g, ' ').trim();
   const short = (primary || '').match(/\b(3050|3060|3070|3080|3090|4060|4070|4080|4090)\b/);
   return short ? short[1] : null;
@@ -919,6 +964,22 @@ function parseBudgetRub(userMessage, normalized) {
   return budgetRub;
 }
 
+/**
+ * Если пользователь не указал сумму в рублях, подбираем ориентир бюджета по классу GPU
+ * (иначе для RTX 5080 дефолт 120k не собирается в плитку).
+ */
+function inferFallbackBudgetRub(userMessage, effective) {
+  const chip = extractGpuChipFuzzy(effective) || extractGpuChipFuzzy(userMessage || '');
+  if (!chip || chip.kind !== 'nvidia') return 120000;
+  const n = parseInt(String(chip.chip).replace(/\D/g, ''), 10);
+  if (!Number.isFinite(n)) return 120000;
+  if (n >= 5000 && n < 5100) return 280000;
+  if (n >= 4080) return 260000;
+  if (n >= 4070) return 200000;
+  if (n >= 4060) return 150000;
+  return 120000;
+}
+
 async function smartFallback(pool, userMessage, normPre, workload) {
   const norm = normPre || normalizeUserMessage(userMessage);
   const effective = norm.normalized.length >= 2 ? norm.normalized : (userMessage || '').trim();
@@ -930,19 +991,21 @@ async function smartFallback(pool, userMessage, normPre, workload) {
   }
 
   const catalog = await loadCatalogForAi(pool);
-  let budgetRub = parseBudgetRub(userMessage, norm.normalized);
+  const budgetRub = parseBudgetRub(userMessage, norm.normalized);
   const cpuHint = buildCpuHint(effective, norm.normalized);
   const gpuPrefer = getGpuPreference(userMessage, norm.normalized);
   const wl = workload || extractWorkloadHint(`${userMessage} ${norm.normalized}`);
+  const fallbackBudget = budgetRub > 0 ? budgetRub : inferFallbackBudgetRub(userMessage, effective);
+  const budgetLabel = budgetRub > 0 ? budgetRub : fallbackBudget;
 
-  // Если бюджет задан — предлагаем 3 варианта
-  if (budgetRub >= 50000) {
-    const variants = generateThreeVariants(catalog, budgetRub, gpuPrefer, cpuHint, wl, effective);
+  // Несколько вариантов, если бюджет указан или выведен из модели GPU
+  if (fallbackBudget >= 50000) {
+    const variants = generateThreeVariants(catalog, fallbackBudget, gpuPrefer, cpuHint, wl, effective);
     if (variants.length > 0) {
       return {
         suggestions: variants.map(v => ({
           name: v.label,
-          description: `${v.pros_tag.charAt(0).toUpperCase() + v.pros_tag.slice(1)}. Итого ≈ ${v.build.totalPrice.toLocaleString('ru-RU')} руб. из ${budgetRub.toLocaleString('ru-RU')} руб.`,
+          description: `${v.pros_tag.charAt(0).toUpperCase() + v.pros_tag.slice(1)}. Итого ≈ ${v.build.totalPrice.toLocaleString('ru-RU')} руб. из ${budgetLabel.toLocaleString('ru-RU')} руб.`,
           pros: v.pros,
           cons: v.cons,
           component_ids: v.build.ids,
@@ -952,7 +1015,6 @@ async function smartFallback(pool, userMessage, normPre, workload) {
   }
 
   // Один вариант
-  const fallbackBudget = budgetRub > 0 ? budgetRub : 120000;
   let build = pickCompatibleBuild(catalog, fallbackBudget, gpuPrefer, cpuHint, effective);
   build = build ? finalizeAiComponentIds(catalog, build, fallbackBudget, gpuPrefer, cpuHint, effective) : null;
   if (!build || !build.ids.length) {
@@ -1103,8 +1165,13 @@ async function getAiResponse(pool, userMessage, buildSummary = null, history = n
       if (out.length > 0) return { suggestions: out };
     }
 
-    // LLM ответил текстом
-    if (trimmed.length > 0) return { text: trimmed };
+    // Модель вернула простой текст без JSON — для запросов про сборку показываем плитки из каталога
+    if (trimmed.length > 0) {
+      if (hasExplicitPcBuildIntent(clean, norm.normalized)) {
+        return smartFallback(pool, clean, norm, workload);
+      }
+      return { text: trimmed };
+    }
   }
 
   return smartFallback(pool, clean, norm, workload);

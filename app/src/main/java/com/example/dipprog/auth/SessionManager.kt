@@ -25,6 +25,13 @@ class SessionManager(context: Context) {
         get() = prefs.getString(KEY_USER_AVATAR, null)
         set(value) = prefs.edit().putString(KEY_USER_AVATAR, value).apply()
 
+    var userRole: String?
+        get() = prefs.getString(KEY_USER_ROLE, "customer")
+        set(value) = prefs.edit().putString(KEY_USER_ROLE, value ?: "customer").apply()
+
+    val isAssembler: Boolean
+        get() = userRole.equals("assembler", ignoreCase = true)
+
     /** Пользователь вошёл по токену (не гость). */
     val isLoggedIn: Boolean
         get() = !token.isNullOrBlank()
@@ -49,6 +56,7 @@ class SessionManager(context: Context) {
         userName = user.name
         userEmail = user.email
         userAvatarUrl = user.avatar_url
+        userRole = user.role ?: "customer"
     }
 
     /** Режим гостя: без токена, основной интерфейс доступен. */
@@ -59,6 +67,7 @@ class SessionManager(context: Context) {
             .remove(KEY_USER_NAME)
             .remove(KEY_USER_EMAIL)
             .remove(KEY_USER_AVATAR)
+            .remove(KEY_USER_ROLE)
             .putBoolean(KEY_GUEST_MODE, true)
             .apply()
     }
@@ -70,6 +79,7 @@ class SessionManager(context: Context) {
             .remove(KEY_USER_NAME)
             .remove(KEY_USER_EMAIL)
             .remove(KEY_USER_AVATAR)
+            .remove(KEY_USER_ROLE)
             .putBoolean(KEY_GUEST_MODE, false)
             .apply()
     }
@@ -85,6 +95,7 @@ class SessionManager(context: Context) {
         private const val KEY_USER_NAME = "user_name"
         private const val KEY_USER_EMAIL = "user_email"
         private const val KEY_USER_AVATAR = "user_avatar_url"
+        private const val KEY_USER_ROLE = "user_role"
         private const val KEY_GUEST_MODE = "guest_mode"
     }
 }

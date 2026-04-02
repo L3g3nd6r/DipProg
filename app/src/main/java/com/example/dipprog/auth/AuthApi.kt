@@ -1,21 +1,16 @@
 package com.example.dipprog.auth
 
-import com.example.dipprog.api.ApiConfig
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
+import com.example.dipprog.api.ApiHttp
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.util.concurrent.TimeUnit
 
 object AuthApi {
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
-        .build()
+    private val BASE_URL = com.example.dipprog.BuildConfig.BASE_URL
+    private val client get() = ApiHttp.client
     private val gson = Gson()
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
@@ -26,7 +21,9 @@ object AuthApi {
         val id: Int,
         val email: String,
         val name: String,
-        val avatar_url: String? = null
+        val avatar_url: String? = null,
+        val role: String? = "customer",
+        @SerializedName("created_at") val createdAt: String? = null
     )
 
     data class AuthResponse(
@@ -41,16 +38,16 @@ object AuthApi {
     )
 
     fun register(email: String, password: String, name: String): ApiResult<AuthResponse> {
-        return post("${ApiConfig.baseUrl()}/api/auth/register", RegisterBody(email, password, name))
+        return post("$BASE_URL/api/auth/register", RegisterBody(email, password, name))
     }
 
     fun login(email: String, password: String): ApiResult<AuthResponse> {
-        return post("${ApiConfig.baseUrl()}/api/auth/login", LoginBody(email, password))
+        return post("$BASE_URL/api/auth/login", LoginBody(email, password))
     }
 
     fun me(token: String): ApiResult<MeResponse> {
         val request = Request.Builder()
-            .url("${ApiConfig.baseUrl()}/api/auth/me")
+            .url("$BASE_URL/api/auth/me")
             .addHeader("Authorization", "Bearer $token")
             .get()
             .build()
@@ -64,7 +61,7 @@ object AuthApi {
         body["avatar_url"] = avatarUrl
         val json = gson.toJson(body)
         val request = Request.Builder()
-            .url("${ApiConfig.baseUrl()}/api/auth/me")
+            .url("$BASE_URL/api/auth/me")
             .addHeader("Authorization", "Bearer $token")
             .patch(json.toRequestBody(jsonType))
             .build()

@@ -17,7 +17,7 @@
         tools:targetApi="31"
         tools:replace="android:allowBackup,android:label">
         <activity
-            android:name="com.example.dipproj.MainActivity"
+            android:name="com.example.dipprog.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

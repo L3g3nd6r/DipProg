@@ -27,6 +27,11 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:paddingStart="8dp"
+            android:breakStrategy="simple"
+            android:ellipsize="end"
+            android:gravity="center_vertical"
+            android:hyphenationFrequency="none"
+            android:maxLines="2"
             android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
             android:textColor="?attr/colorOnSurface" />
 

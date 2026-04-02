@@ -9,11 +9,11 @@
         android:icon="@drawable/ic_build"
         android:title="Сборка" />
     <item
-        android:id="@+id/navigation_cart"
-        android:icon="@drawable/ic_cart"
-        android:title="Корзина" />
-    <item
         android:id="@+id/navigation_ai_chat"
         android:icon="@drawable/ic_ai"
         android:title="ИИ чат" />
+    <item
+        android:id="@+id/navigation_orders"
+        android:icon="@drawable/ic_notifications"
+        android:title="@string/menu_orders" />
 </menu>

@@ -43,6 +43,15 @@
         android:textColor="?attr/colorOnPrimaryContainer"
         android:visibility="gone" />
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/checkoutOrderButton"
+        style="@style/Widget.Material3.Button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        android:text="@string/cart_checkout_btn"
+        android:visibility="gone" />
+
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/cartEmptyCard"
         android:layout_width="match_parent"

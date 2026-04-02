@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Однотонный силуэт для themed icons (Android 13+) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M40,30L68,30C71.31,30 74,32.69 74,36L74,76C74,79.31 71.31,82 68,82L40,82C36.69,82 34,79.31 34,76L34,36C34,32.69 36.69,30 40,30Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M45,82L63,82L61,88L47,88Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M76,44L86,44C87.1,44 88,44.9 88,46L88,56C88,57.1 87.1,58 86,58L76,58C74.9,58 74,57.1 74,56L74,46C74,44.9 74.9,44 76,44Z" />
+</vector>

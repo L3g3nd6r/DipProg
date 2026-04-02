@@ -16,3 +16,7 @@ local.properties
 
 # Секреты backend (не коммитить)
 backend/.env
+backend/node_modules/
+
+# Локальная копия cloudflared (скачивается скриптом tunnel-cloudflared.ps1)
+/tools/cloudflared.exe

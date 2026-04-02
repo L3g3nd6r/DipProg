@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "1046178207390",
+    "firebase_url": "https://fukiosk-6422e.firebaseio.com",
+    "project_id": "fukiosk-6422e",
+    "storage_bucket": "fukiosk-6422e.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1046178207390:android:21b2cd43388cca34d84d8f",
+        "android_client_info": {
+          "package_name": "com.TeamT3N.fukiosk"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1046178207390-lu3alcamle6ftrmjv0tpmmsk8oetffmv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.TeamT3N.fukiosk",
+            "certificate_hash": "4473319b914b5537ea7ccc3499d28595c1cccfbd"
+          }
+        },
+        {
+          "client_id": "1046178207390-htu60po387ha0ulc4dqi7h15uhekv2ju.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAtHb_bgKDaV1XUNwy5sliOiDQVC3y2lns"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1046178207390-htu60po387ha0ulc4dqi7h15uhekv2ju.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

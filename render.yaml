@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: dipprog-api
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: DATABASE_URL
+        sync: false           # вставить вручную в Render Dashboard
+      - key: JWT_SECRET
+        generateValue: true   # Render сгенерирует случайный секрет автоматически
+      - key: ASSEMBLER_EMAILS
+        value: ""             # через запятую email-адреса сборщиков, можно оставить пустым
+      - key: OPENAI_API_KEY
+        sync: false           # опционально, для ИИ-подборок
+      - key: OPENAI_MODEL
+        value: "gpt-4o-mini"

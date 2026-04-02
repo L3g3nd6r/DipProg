@@ -1,6 +1,7 @@
 /**
  * Наполнение БД категориями и комплектующими (~50+ на категорию).
- * Цены ориентировочные (руб., 2024–2025). Запуск: npm run seed
+ * Базовые цены в коде — ориентир прошлых сезонов; при вставке умножаются на коэффициент
+ * (актуализация под розницу ~2026 Q1, округление до 100 ₽). Запуск: npm run seed
  */
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const { Pool } = require('pg');
@@ -8,6 +9,15 @@ const { Pool } = require('pg');
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/dipproj',
 });
+
+/** Коэффициент к базовым ценам в generateComponents (инфляция / курс, без внешнего API). */
+const SEED_PRICE_FACTOR = 1.07
+
+function seedPriceRub(n) {
+  const x = Number(n)
+  if (!Number.isFinite(x)) return 0
+  return Math.max(100, Math.round((x * SEED_PRICE_FACTOR) / 100) * 100)
+}
 
 const CATEGORIES = [
   { name: 'Процессоры', slug: 'processors', sort_order: 1, max_per_build: 1 },
@@ -44,7 +54,7 @@ async function seed() {
              price = EXCLUDED.price,
              specs = EXCLUDED.specs,
              updated_at = CURRENT_TIMESTAMP`,
-          [c.category_id, c.name, c.description || null, c.price, c.specs ? JSON.stringify(c.specs) : null]
+          [c.category_id, c.name, c.description || null, seedPriceRub(c.price), c.specs ? JSON.stringify(c.specs) : null]
         );
       }
       console.log(`Категория "${cat.name}": ${components.length} позиций.`);

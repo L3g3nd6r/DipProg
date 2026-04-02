@@ -3,12 +3,16 @@
   "version": "1.0.0",
   "description": "API авторизации для приложения сборки ПК",
   "main": "server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "node server.js",
     "init-db": "node init-db.js",
     "init-components": "node init-components.js",
     "seed": "node scripts/seed-components.js",
-    "migrate": "node run-migrate.js"
+    "migrate": "node run-migrate.js",
+    "setup-cloud-db": "node scripts/setup-neon-db.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

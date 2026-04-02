@@ -6,8 +6,14 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.example.dipprog.R
+import java.util.Locale
 
-class GuideAdapter(private val sections: List<GuideSection>) : RecyclerView.Adapter<GuideAdapter.VH>() {
+class GuideAdapter(
+    private val allSections: List<GuideSection>,
+    private val onVisibleCountChanged: (Int) -> Unit = {},
+) : RecyclerView.Adapter<GuideAdapter.VH>() {
+
+    private var visibleSections: List<GuideSection> = allSections
 
     class VH(view: View) : RecyclerView.ViewHolder(view) {
         val title: TextView = view.findViewById(R.id.guideSectionTitle)
@@ -20,10 +26,24 @@ class GuideAdapter(private val sections: List<GuideSection>) : RecyclerView.Adap
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
-        val s = sections[position]
+        val s = visibleSections[position]
         holder.title.text = s.title
         holder.body.text = s.body.trim()
     }
 
-    override fun getItemCount(): Int = sections.size
+    override fun getItemCount(): Int = visibleSections.size
+
+    fun setFilter(query: String) {
+        val q = query.trim().lowercase(Locale.getDefault())
+        visibleSections = if (q.isEmpty()) {
+            allSections
+        } else {
+            allSections.filter { section ->
+                section.title.lowercase(Locale.getDefault()).contains(q) ||
+                    section.body.lowercase(Locale.getDefault()).contains(q)
+            }
+        }
+        notifyDataSetChanged()
+        onVisibleCountChanged(visibleSections.size)
+    }
 }

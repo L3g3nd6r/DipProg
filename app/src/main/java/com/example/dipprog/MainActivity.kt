@@ -1,4 +1,4 @@
-package com.example.dipproj
+package com.example.dipprog
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -9,6 +9,7 @@ import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
 import android.os.Bundle
 import android.util.Log
+import android.view.HapticFeedbackConstants
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MenuItem
@@ -20,22 +21,26 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import com.example.dipprog.R
-import com.example.dipprog.api.ApiConfig
 import com.example.dipprog.api.BuildsAdapter
 import com.example.dipprog.api.BuildsApi
 import com.example.dipprog.api.BuildComponentsAdapter
 import com.example.dipprog.api.CartAdapter
 import com.example.dipprog.api.ComponentsAdapter
+import com.example.dipprog.api.OrdersAdapter
 import com.example.dipprog.api.priceStr
 import com.example.dipprog.auth.AuthApi
 import com.example.dipprog.auth.SessionManager
 import com.example.dipprog.guide.BeginnerGuide
 import com.example.dipprog.guide.GuideAdapter
 import com.example.dipprog.util.ComponentSpecFormatter
+import com.example.dipprog.util.launchIo
 import android.widget.ArrayAdapter
 import android.widget.Spinner
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.badge.BadgeDrawable
+import com.google.android.material.color.MaterialColors
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomnavigation.BottomNavigationView
@@ -45,8 +50,16 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.textfield.TextInputEditText
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.graphics.Typeface
+import android.text.Layout
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
+import android.text.TextUtils
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.inputmethod.EditorInfo
@@ -55,14 +68,17 @@ import android.widget.ImageView
 import coil.load
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var homePage: View
     private lateinit var settingsPage: View
     private lateinit var buildPage: View
-    private lateinit var cartPage: View
     private lateinit var aiChatPage: View
+    private lateinit var ordersPage: View
     private lateinit var profilePage: View
     private lateinit var guidePage: View
     private lateinit var bottomNavigationView: BottomNavigationView
@@ -80,14 +96,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
     private var loadCartCallback: (() -> Unit)? = null
+    private var refreshOrdersCallback: (() -> Unit)? = null
+    private var lastOrderNotificationId: Int = -1
+    private var lastOrderNotificationCheckAt: Long = 0L
 
     // --- Добавленные поля для настроек ---
     private lateinit var themeToggleGroup: MaterialButtonToggleGroup
     private lateinit var notificationsSwitch: MaterialSwitch
-    private lateinit var serverUrlInput: TextInputEditText
-    private lateinit var serverUrlSaveButton: MaterialButton
-    private lateinit var serverUrlResetButton: MaterialButton
-    private lateinit var serverUrlEffectiveText: TextView
     private lateinit var sharedPreferences: SharedPreferences
     private val PREFS_NAME = "MyPrefs"
     private val THEME_KEY = "selected_theme"
@@ -116,7 +131,6 @@ class MainActivity : AppCompatActivity() {
         loadSettings()
 
         setContentView(R.layout.activity_main)
-        ApiConfig.init(this)
 
         topAppBar = findViewById(R.id.topAppBar)
         authOverlay = findViewById(R.id.authOverlay)
@@ -127,8 +141,8 @@ class MainActivity : AppCompatActivity() {
         homePage = findViewById(R.id.homePage)
         settingsPage = findViewById(R.id.settingsPage)
         buildPage = findViewById(R.id.buildPage)
-        cartPage = findViewById(R.id.cartPage)
         aiChatPage = findViewById(R.id.aiChatPage)
+        ordersPage = findViewById(R.id.ordersPage)
         profilePage = findViewById(R.id.profilePage)
         guidePage = findViewById(R.id.guidePage)
         bottomNavigationView = findViewById(R.id.bottomNavigationView)
@@ -137,18 +151,14 @@ class MainActivity : AppCompatActivity() {
         homePage.visibility = View.GONE
         settingsPage.visibility = View.GONE
         buildPage.visibility = View.GONE
-        cartPage.visibility = View.GONE
         aiChatPage.visibility = View.GONE
+        ordersPage.visibility = View.GONE
         profilePage.visibility = View.GONE
         guidePage.visibility = View.GONE
 
         // --- Инициализация views для настроек ---
         themeToggleGroup = settingsPage.findViewById(R.id.themeToggleGroup)
         notificationsSwitch = settingsPage.findViewById(R.id.notificationsSwitch)
-        serverUrlInput = settingsPage.findViewById(R.id.serverUrlInput)
-        serverUrlSaveButton = settingsPage.findViewById(R.id.serverUrlSaveButton)
-        serverUrlResetButton = settingsPage.findViewById(R.id.serverUrlResetButton)
-        serverUrlEffectiveText = settingsPage.findViewById(R.id.serverUrlEffectiveText)
         // TextView для версии можно найти и установить значение при необходимости
         val versionInfoText: android.widget.TextView = settingsPage.findViewById(R.id.versionInfoText)
         try {
@@ -174,6 +184,7 @@ class MainActivity : AppCompatActivity() {
         setupBottomNavigation()
         setupBuildPageTabs()
         setupBuildsAndCart()
+        setupOrdersPage()
         setupHomePage()
         setupGuidePage()
         setupTopBarMenu()
@@ -183,6 +194,8 @@ class MainActivity : AppCompatActivity() {
         setupAuthScreen()
         restoreChatFromState(savedInstanceState)
         updateProfileUI()
+        syncSessionFromServerIfNeeded()
+        updateOrdersTabVisibility()
 
         // Показываем нужную страницу после завершения раскладки (избегаем падения при обращении к BottomNavigationView)
         val savedId = if (savedInstanceState != null && savedInstanceState.containsKey(KEY_CURRENT_PAGE)) {
@@ -190,14 +203,38 @@ class MainActivity : AppCompatActivity() {
         } else {
             R.id.navigation_home
         }
-        homePage.post { showPageById(savedId) }
+        val initialPage = if (!sessionManager.isLoggedIn && savedId == R.id.navigation_orders) {
+            R.id.navigation_home
+        } else {
+            savedId
+        }
+        homePage.post { showPageById(initialPage) }
+    }
+
+    private fun syncSessionFromServerIfNeeded() {
+        val tok = sessionManager.token ?: return
+        launchIo(
+            work = { AuthApi.me(tok) },
+            onMain = { r ->
+                when (r) {
+                    is AuthApi.ApiResult.Success -> {
+                        sessionManager.userName = r.data.user.name
+                        sessionManager.userEmail = r.data.user.email
+                        sessionManager.userAvatarUrl = r.data.user.avatar_url
+                        sessionManager.userRole = r.data.user.role ?: "customer"
+                        updateOrdersTabVisibility()
+                    }
+                    else -> {}
+                }
+            },
+        )
     }
 
     private fun getPageViewForId(id: Int): View = when (id) {
         R.id.navigation_home -> homePage
         R.id.navigation_build -> buildPage
-        R.id.navigation_cart -> cartPage
         R.id.navigation_ai_chat -> aiChatPage
+        R.id.navigation_orders -> ordersPage
         R.id.action_profile -> profilePage
         R.id.action_settings -> settingsPage
         R.id.action_guide -> guidePage
@@ -217,17 +254,26 @@ class MainActivity : AppCompatActivity() {
                 bottomNavigationView.selectedItemId = R.id.navigation_build
                 refreshBuildList?.invoke()
             }
-            R.id.navigation_cart -> {
-                bottomNavigationView.selectedItemId = R.id.navigation_cart
-                loadCartCallback?.invoke()
-            }
             R.id.navigation_ai_chat -> {
                 bottomNavigationView.selectedItemId = R.id.navigation_ai_chat
                 scrollToBottomOfMessages()
             }
+            R.id.navigation_orders -> {
+                bottomNavigationView.selectedItemId = R.id.navigation_orders
+                Thread {
+                    BuildsApi.markOrderNotificationsRead(sessionManager.token)
+                    runOnUiThread {
+                        clearOrdersTabBadge()
+                        refreshOrdersCallback?.invoke()
+                    }
+                }.start()
+            }
             R.id.action_profile -> updateProfileUI()
             R.id.action_settings -> updateSettingsUI()
             R.id.action_guide -> { }
+        }
+        if (id != R.id.navigation_orders) {
+            maybeCheckOrderNotifications()
         }
         updateToolbarTitleForPage(id)
     }
@@ -237,6 +283,7 @@ class MainActivity : AppCompatActivity() {
         when (id) {
             R.id.action_guide -> bar.setTitle(R.string.menu_guide)
             R.id.action_profile -> bar.setTitle(R.string.menu_profile)
+            R.id.navigation_orders -> bar.setTitle(R.string.menu_orders)
             else -> bar.setTitle(R.string.app_toolbar_title)
         }
     }
@@ -280,10 +327,12 @@ class MainActivity : AppCompatActivity() {
         val buildDetailAddBuildToCart = buildPage.findViewById<MaterialButton>(R.id.buildDetailAddBuildToCart)
         val buildDetailShare = buildPage.findViewById<MaterialButton>(R.id.buildDetailShare)
         val buildDetailDuplicate = buildPage.findViewById<MaterialButton>(R.id.buildDetailDuplicate)
-        val cartRecycler = cartPage.findViewById<RecyclerView>(R.id.cartRecyclerView)
-        val cartEmptyCard = cartPage.findViewById<View>(R.id.cartEmptyCard)
-        val cartTotalText = cartPage.findViewById<TextView>(R.id.cartTotalText)
-        val goToShoppingBtn = cartPage.findViewById<MaterialButton>(R.id.goToShoppingButton)
+        val cartRecycler = buildPage.findViewById<RecyclerView>(R.id.cartRecyclerView)
+        val cartEmptyCard = buildPage.findViewById<View>(R.id.cartEmptyCard)
+        val cartTotalText = buildPage.findViewById<TextView>(R.id.cartTotalText)
+        val checkoutOrderBtn = buildPage.findViewById<MaterialButton>(R.id.checkoutOrderButton)
+        val goToShoppingBtn = buildPage.findViewById<MaterialButton>(R.id.goToShoppingButton)
+        var currentCartItems: List<BuildsApi.CartItem> = emptyList()
 
         buildsRecycler.layoutManager = LinearLayoutManager(this)
         buildDetailRecycler.layoutManager = LinearLayoutManager(this)
@@ -431,18 +480,29 @@ class MainActivity : AppCompatActivity() {
                                 text = w.message ?: ""
                                 textSize = 13f
                                 setTextColor(resources.getColor(android.R.color.black, theme))
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                    breakStrategy = Layout.BREAK_STRATEGY_SIMPLE
+                                    hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
+                                }
                             }
                             msgRow.addView(msgTv)
                             val slugs = typeToSlugs(w.type)
                             val related = currentBuildComponentsList.filter { it.category_slug in slugs }
                             if (related.isNotEmpty()) {
                                 val btnRow = LinearLayout(this@MainActivity).apply {
-                                    orientation = LinearLayout.HORIZONTAL
+                                    orientation = LinearLayout.VERTICAL
                                     setPadding(0, 4, 0, 0)
                                 }
+                                val gap = (8 * resources.displayMetrics.density).toInt()
                                 for (comp in related) {
                                     val removeBtn = MaterialButton(this@MainActivity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                                        text = "Удалить ${comp.name.take(20)}${if (comp.name.length > 20) "…" else ""}"
+                                        layoutParams = LinearLayout.LayoutParams(
+                                            LinearLayout.LayoutParams.MATCH_PARENT,
+                                            LinearLayout.LayoutParams.WRAP_CONTENT
+                                        ).apply { bottomMargin = gap }
+                                        maxLines = 2
+                                        ellipsize = TextUtils.TruncateAt.END
+                                        text = getString(R.string.build_remove_component, comp.name)
                                         setOnClickListener {
                                             val bid = currentBuildId ?: return@setOnClickListener
                                             Thread {
@@ -454,8 +514,7 @@ class MainActivity : AppCompatActivity() {
                                             }.start()
                                         }
                                     }
-                                    val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = 8 }
-                                    btnRow.addView(removeBtn, lp)
+                                    btnRow.addView(removeBtn)
                                 }
                                 msgRow.addView(btnRow)
                             }
@@ -473,6 +532,7 @@ class MainActivity : AppCompatActivity() {
                 cartRecycler.visibility = View.GONE
                 cartEmptyCard.visibility = View.VISIBLE
                 cartTotalText.visibility = View.GONE
+                checkoutOrderBtn.visibility = View.GONE
             } else {
                 Thread {
                     val r = BuildsApi.cart(sessionManager.token)
@@ -484,15 +544,23 @@ class MainActivity : AppCompatActivity() {
                                     cartRecycler.visibility = View.GONE
                                     cartEmptyCard.visibility = View.VISIBLE
                                     cartTotalText.visibility = View.GONE
+                                    checkoutOrderBtn.visibility = View.GONE
                                 } else {
                                     cartEmptyCard.visibility = View.GONE
                                     cartRecycler.visibility = View.VISIBLE
                                     cartTotalText.visibility = View.VISIBLE
+                                    checkoutOrderBtn.visibility = View.VISIBLE
                                     cartTotalText.text = "Итого: ${priceStr(r.data.total)}"
+                                    currentCartItems = items
                                     cartAdapter.setData(items)
                                 }
                             }
-                            else -> { cartRecycler.visibility = View.GONE; cartEmptyCard.visibility = View.VISIBLE; cartTotalText.visibility = View.GONE }
+                            else -> {
+                                cartRecycler.visibility = View.GONE
+                                cartEmptyCard.visibility = View.VISIBLE
+                                cartTotalText.visibility = View.GONE
+                                checkoutOrderBtn.visibility = View.GONE
+                            }
                         }
                         if (currentPageId == R.id.action_profile && sessionManager.isLoggedIn) {
                             refreshProfileStats()
@@ -500,6 +568,54 @@ class MainActivity : AppCompatActivity() {
                     }
                 }.start()
             }
+        }
+
+        checkoutOrderBtn.setOnClickListener {
+            if (!sessionManager.isLoggedIn) {
+                Snackbar.make(buildPage, "Войдите в аккаунт для оформления заказа", Snackbar.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (currentCartItems.isEmpty()) {
+                Snackbar.make(buildPage, "Корзина пуста", Snackbar.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val v = LayoutInflater.from(this).inflate(R.layout.dialog_checkout_order, null)
+            val nameInput = v.findViewById<TextInputEditText>(R.id.checkoutName)
+            val phoneInput = v.findViewById<TextInputEditText>(R.id.checkoutPhone)
+            val emailInput = v.findViewById<TextInputEditText>(R.id.checkoutEmail)
+            val addressInput = v.findViewById<TextInputEditText>(R.id.checkoutAddress)
+            val commentInput = v.findViewById<TextInputEditText>(R.id.checkoutComment)
+            nameInput.setText(sessionManager.userName ?: "")
+            emailInput.setText(sessionManager.userEmail ?: "")
+            MaterialAlertDialogBuilder(this)
+                .setTitle(getString(R.string.checkout_title))
+                .setView(v)
+                .setPositiveButton("Оформить") { _, _ ->
+                    val n = nameInput.text?.toString()?.trim().orEmpty()
+                    val p = phoneInput.text?.toString()?.trim().orEmpty()
+                    val e = emailInput.text?.toString()?.trim().orEmpty()
+                    val a = addressInput.text?.toString()?.trim().orEmpty()
+                    val c = commentInput.text?.toString()?.trim()?.takeIf { it.isNotBlank() }
+                    if (n.isBlank() || p.isBlank() || e.isBlank() || a.isBlank()) {
+                        Snackbar.make(buildPage, "Заполните обязательные поля", Snackbar.LENGTH_SHORT).show()
+                        return@setPositiveButton
+                    }
+                    Thread {
+                        val r = BuildsApi.createOrder(sessionManager.token, n, p, e, a, c)
+                        runOnUiThread {
+                            when (r) {
+                                is BuildsApi.ApiResult.Success -> {
+                                    Snackbar.make(buildPage, "Заказ #${r.data.id} оформлен", Snackbar.LENGTH_LONG).show()
+                                    loadCart()
+                                    maybeCheckOrderNotifications(force = true)
+                                }
+                                is BuildsApi.ApiResult.Error -> Snackbar.make(buildPage, r.message, Snackbar.LENGTH_SHORT).show()
+                            }
+                        }
+                    }.start()
+                }
+                .setNegativeButton("Отмена", null)
+                .show()
         }
 
         fun showCreateBuildDialogAndCreate() {
@@ -609,11 +725,12 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("Копировать сборку?")
                 .setMessage("Будет создана копия «${d.name}» со всеми комплектующими.")
                 .setPositiveButton("Копировать") { _, _ ->
-                    val suffix = getString(R.string.duplicate_build_suffix)
                     Thread {
-                        var candidate = d.name + suffix
+                        val stem = stemBuildNameForCopy(d.name)
                         var newId: Int? = null
-                        for (i in 0 until 12) {
+                        var n = 2
+                        while (n < 100) {
+                            val candidate = getString(R.string.duplicate_build_numbered, stem, n)
                             when (val created = BuildsApi.createBuild(sessionManager.token, candidate)) {
                                 is BuildsApi.ApiResult.Success -> {
                                     newId = created.data.id
@@ -625,7 +742,7 @@ class MainActivity : AppCompatActivity() {
                                         runOnUiThread { Snackbar.make(buildPage, created.message, Snackbar.LENGTH_LONG).show() }
                                         return@Thread
                                     }
-                                    candidate = d.name + suffix + " ${i + 2}"
+                                    n++
                                 }
                             }
                         }
@@ -867,7 +984,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         goToShoppingBtn.setOnClickListener {
-            showPageById(R.id.navigation_build)
+            val tabs = buildPage.findViewById<TabLayout>(R.id.buildMainTabs)
+            tabs.getTabAt(0)?.select()
+            openBuildPageWithCategory?.invoke(null)
         }
 
         refreshBuildList = loadBuildsList
@@ -939,6 +1058,8 @@ class MainActivity : AppCompatActivity() {
                                     hideAuthOverlay()
                                     updateProfileUI()
                                     refreshHomeBuildsCard?.invoke()
+                                    updateOrdersTabVisibility()
+                                    refreshOrdersCallback?.invoke()
                                     bottomNavigationView.selectedItemId = R.id.navigation_home
                                 }
                                 is AuthApi.ApiResult.Error -> {
@@ -957,6 +1078,7 @@ class MainActivity : AppCompatActivity() {
             hideAuthOverlay()
             updateProfileUI()
             refreshHomeBuildsCard?.invoke()
+            updateOrdersTabVisibility()
             bottomNavigationView.selectedItemId = R.id.navigation_home
         }
 
@@ -983,6 +1105,90 @@ class MainActivity : AppCompatActivity() {
         topAppBar.visibility = View.VISIBLE
         bottomNavigationView.visibility = View.VISIBLE
         authBackCallback.isEnabled = false
+        updateOrdersTabVisibility()
+        maybeCheckOrderNotifications(force = true)
+    }
+
+    private fun updateOrdersTabVisibility() {
+        val item = bottomNavigationView.menu.findItem(R.id.navigation_orders) ?: return
+        // Вкладка заказов доступна всем авторизованным пользователям:
+        // customer видит "мои заказы", assembler — "назначенные".
+        item.isVisible = sessionManager.isLoggedIn
+        if (!item.isVisible) {
+            clearOrdersTabBadge()
+            if (currentPageId == R.id.navigation_orders) {
+                showPageById(R.id.navigation_home)
+            }
+        }
+    }
+
+    /** Бейдж по числу непрочитанных уведомлений о заказах (новый заказ / смена статуса и т.д.). */
+    private fun updateOrdersTabBadge(unreadCount: Int) {
+        if (!sessionManager.isLoggedIn) {
+            clearOrdersTabBadge()
+            return
+        }
+        val badge = try {
+            bottomNavigationView.getOrCreateBadge(R.id.navigation_orders)
+        } catch (_: Exception) {
+            return
+        }
+        if (unreadCount <= 0) {
+            badge.isVisible = false
+            return
+        }
+        badge.isVisible = true
+        badge.number = unreadCount.coerceAtMost(99)
+        badge.badgeGravity = BadgeDrawable.TOP_END
+    }
+
+    private fun clearOrdersTabBadge() {
+        try {
+            bottomNavigationView.removeBadge(R.id.navigation_orders)
+        } catch (_: Exception) {
+            try {
+                bottomNavigationView.getOrCreateBadge(R.id.navigation_orders).isVisible = false
+            } catch (_: Exception) { }
+        }
+    }
+
+    private fun maybeCheckOrderNotifications(force: Boolean = false) {
+        if (!sessionManager.isLoggedIn) {
+            clearOrdersTabBadge()
+            return
+        }
+        val notificationsEnabled = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(NOTIFICATIONS_KEY, true)
+        if (!notificationsEnabled) {
+            clearOrdersTabBadge()
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (!force && now - lastOrderNotificationCheckAt < 30_000L) return
+        lastOrderNotificationCheckAt = now
+        val token = sessionManager.token ?: return
+        launchIo(
+            work = { BuildsApi.myOrderNotifications(token) },
+            onMain = { r ->
+                if (r is BuildsApi.ApiResult.Success) {
+                    val list = r.data
+                    val unread = list.count { !it.is_read }
+                    updateOrdersTabBadge(unread)
+                    val newestUnread = list.firstOrNull { !it.is_read }
+                    if (newestUnread != null &&
+                        newestUnread.id != lastOrderNotificationId &&
+                        currentPageId != R.id.navigation_orders
+                    ) {
+                        lastOrderNotificationId = newestUnread.id
+                        Snackbar.make(
+                            findViewById(R.id.main),
+                            "${newestUnread.title}\n${newestUnread.body}",
+                            Snackbar.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            },
+        )
     }
 
     private fun setupProfileListeners() {
@@ -994,6 +1200,7 @@ class MainActivity : AppCompatActivity() {
         }
         profilePage.findViewById<MaterialButton>(R.id.profileLogoutButton).setOnClickListener {
             sessionManager.logout()
+            updateOrdersTabVisibility()
             updateProfileUI()
             refreshHomeBuildsCard?.invoke()
             showAuthOverlay(registerMode = false)
@@ -1022,7 +1229,11 @@ class MainActivity : AppCompatActivity() {
                 showPageById(R.id.navigation_build)
             },
             NavItem(R.drawable.ic_cart, getString(R.string.profile_nav_cart), getString(R.string.profile_nav_cart_sub)) {
-                showPageById(R.id.navigation_cart)
+                showPageById(R.id.navigation_build)
+                buildPage.post {
+                    val tabs = buildPage.findViewById<TabLayout>(R.id.buildMainTabs)
+                    tabs.getTabAt(1)?.select()
+                }
             },
             NavItem(R.drawable.ic_ai, getString(R.string.profile_nav_ai), getString(R.string.profile_nav_ai_sub)) {
                 showPageById(R.id.navigation_ai_chat)
@@ -1041,30 +1252,156 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Подгружает число сборок и позиций в корзине для карточек статистики. */
+    /** Подгружает статистику профиля (один запрос к API). */
     private fun refreshProfileStats() {
         if (!sessionManager.isLoggedIn) return
         val buildsTv = profilePage.findViewById<TextView>(R.id.profileStatBuildsValue)
         val cartTv = profilePage.findViewById<TextView>(R.id.profileStatCartValue)
+        val cartTotalTv = profilePage.findViewById<TextView>(R.id.profileStatCartTotalValue)
+        val cartLinesTv = profilePage.findViewById<TextView>(R.id.profileStatCartLinesValue)
+        val slotsTv = profilePage.findViewById<TextView>(R.id.profileStatBuildSlotsValue)
+        val memberTv = profilePage.findViewById<TextView>(R.id.profileStatMemberSinceValue)
         Thread {
-            val buildsRes = BuildsApi.builds(sessionManager.token)
-            val cartRes = BuildsApi.cart(sessionManager.token)
-            runOnUiThread {
-                val nBuilds = when (buildsRes) {
-                    is BuildsApi.ApiResult.Success -> buildsRes.data.size
-                    else -> 0
+            when (val res = BuildsApi.userStats(sessionManager.token)) {
+                is BuildsApi.ApiResult.Success -> {
+                    val s = res.data
+                    runOnUiThread {
+                        buildsTv.text = s.buildsCount.toString()
+                        cartTv.text = s.cartQuantity.toString()
+                        cartTotalTv.text = priceStr(s.cartTotalRub)
+                        cartLinesTv.text = s.cartLines.toString()
+                        slotsTv.text = s.buildComponentSlots.toString()
+                        memberTv.text = formatMemberSince(s.memberSince)
+                    }
+                    if (s.memberSince.isNullOrBlank()) {
+                        val tok = sessionManager.token
+                        if (!tok.isNullOrBlank()) {
+                            Thread {
+                                when (val mr = AuthApi.me(tok)) {
+                                    is AuthApi.ApiResult.Success -> {
+                                        val label = formatMemberSince(mr.data.user.createdAt)
+                                        if (label != "—") {
+                                            runOnUiThread { memberTv.text = label }
+                                        }
+                                    }
+                                    else -> {}
+                                }
+                            }.start()
+                        }
+                    }
                 }
-                val nCart = when (cartRes) {
-                    is BuildsApi.ApiResult.Success -> cartRes.data.items.sumOf { it.quantity }
-                    else -> 0
-                }
-                buildsTv.text = nBuilds.toString()
-                cartTv.text = nCart.toString()
+                else -> applyProfileStatsFallback(
+                    buildsTv,
+                    cartTv,
+                    cartTotalTv,
+                    cartLinesTv,
+                    slotsTv,
+                    memberTv,
+                )
             }
         }.start()
     }
 
+    /**
+     * Если GET /api/stats/me недоступен (404, старый сервер), заполняем сводку из /api/builds,
+     * /api/cart и /api/auth/me — те же данные, что считает stats на бэкенде.
+     */
+    private fun applyProfileStatsFallback(
+        buildsTv: TextView,
+        cartTv: TextView,
+        cartTotalTv: TextView,
+        cartLinesTv: TextView,
+        slotsTv: TextView,
+        memberTv: TextView,
+    ) {
+        val token = sessionManager.token ?: run {
+            runOnUiThread {
+                buildsTv.text = "0"
+                cartTv.text = "0"
+                cartTotalTv.text = "—"
+                cartLinesTv.text = "—"
+                slotsTv.text = "—"
+                memberTv.text = "—"
+            }
+            return
+        }
+        var buildsCount = 0
+        var slots = 0
+        when (val br = BuildsApi.builds(token)) {
+            is BuildsApi.ApiResult.Success -> {
+                val list = br.data
+                buildsCount = list.size
+                for (b in list.take(50)) {
+                    when (val dr = BuildsApi.buildDetail(token, b.id)) {
+                        is BuildsApi.ApiResult.Success -> {
+                            val comps = dr.data.components.orEmpty()
+                            for (c in comps) slots += c.quantity
+                        }
+                        else -> {}
+                    }
+                }
+            }
+            else -> {}
+        }
+        var cartQty = 0
+        var cartLines = 0
+        var cartTotalLabel = "—"
+        when (val cr = BuildsApi.cart(token)) {
+            is BuildsApi.ApiResult.Success -> {
+                val items = cr.data.items
+                cartLines = items.size
+                cartQty = items.sumOf { it.quantity }
+                cartTotalLabel = priceStr(cr.data.total)
+            }
+            else -> {}
+        }
+        var memberLabel = "—"
+        when (val mr = AuthApi.me(token)) {
+            is AuthApi.ApiResult.Success -> {
+                memberLabel = formatMemberSince(mr.data.user.createdAt)
+            }
+            else -> {}
+        }
+        runOnUiThread {
+            buildsTv.text = buildsCount.toString()
+            cartTv.text = cartQty.toString()
+            cartTotalTv.text = cartTotalLabel
+            cartLinesTv.text = cartLines.toString()
+            slotsTv.text = slots.toString()
+            memberTv.text = memberLabel
+        }
+    }
+
+    private fun formatMemberSince(raw: String?): String {
+        if (raw.isNullOrBlank()) return "—"
+        val trimmed = raw.trim()
+        return try {
+            val outFmt = SimpleDateFormat("d MMMM yyyy", Locale("ru", "RU"))
+            val utc = TimeZone.getTimeZone("UTC")
+            val parsers = listOf(
+                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = utc },
+                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = utc },
+                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US),
+                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US),
+                SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply { timeZone = utc },
+                SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = utc },
+            )
+            for (p in parsers) {
+                try {
+                    val d = p.parse(trimmed) ?: continue
+                    return outFmt.format(d)
+                } catch (_: Exception) {
+                    continue
+                }
+            }
+            if (trimmed.length >= 10) trimmed.take(10) else "—"
+        } catch (_: Exception) {
+            if (trimmed.length >= 10) trimmed.take(10) else "—"
+        }
+    }
+
     private fun updateProfileUI() {
+        updateOrdersTabVisibility()
         val heroSub = profilePage.findViewById<TextView>(R.id.profileHeroSubtitle)
         val guestCard = profilePage.findViewById<View>(R.id.profileGuestCard)
         val userCard = profilePage.findViewById<View>(R.id.profileUserCard)
@@ -1181,8 +1518,51 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupBuildPageTabs() {
-        val buildDetailInclude: View = buildPage.findViewById(R.id.buildDetailInclude)
+        val tabs = buildPage.findViewById<TabLayout>(R.id.buildMainTabs)
+        val buildListInclude = buildPage.findViewById<View>(R.id.buildListInclude)
+        val buildDetailInclude = buildPage.findViewById<View>(R.id.buildDetailInclude)
+        val componentPickerInclude = buildPage.findViewById<View>(R.id.componentPickerInclude)
+        val cartInclude = buildPage.findViewById<View>(R.id.buildCartInclude)
+
+        if (tabs.tabCount == 0) {
+            tabs.addTab(tabs.newTab().setText("Сборка"), true)
+            tabs.addTab(tabs.newTab().setText("Корзина"), false)
+        }
+
+        fun showBuildArea() {
+            cartInclude.visibility = View.GONE
+            // Если внутри сборки уже открыт детальный экран или пикер — не ломаем состояние
+            if (componentPickerInclude.visibility == View.VISIBLE) return
+            if (buildDetailInclude.visibility == View.VISIBLE) return
+            buildListInclude.visibility = View.VISIBLE
+        }
+
+        fun showCartArea() {
+            buildListInclude.visibility = View.GONE
+            buildDetailInclude.visibility = View.GONE
+            componentPickerInclude.visibility = View.GONE
+            cartInclude.visibility = View.VISIBLE
+            loadCartCallback?.invoke()
+        }
+
+        // Дефолт
         buildDetailInclude.visibility = View.GONE
+        cartInclude.visibility = View.GONE
+        buildListInclude.visibility = View.VISIBLE
+
+        tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab?) {
+                when (tab?.position ?: 0) {
+                    1 -> showCartArea()
+                    else -> showBuildArea()
+                }
+            }
+
+            override fun onTabUnselected(tab: TabLayout.Tab?) {}
+            override fun onTabReselected(tab: TabLayout.Tab?) {
+                onTabSelected(tab)
+            }
+        })
     }
 
     private fun shareBuildText(detail: BuildsApi.BuildDetail) {
@@ -1199,6 +1579,158 @@ class MainActivity : AppCompatActivity() {
             putExtra(Intent.EXTRA_SUBJECT, detail.name)
         }
         startActivity(Intent.createChooser(send, getString(R.string.share_build_chooser)))
+    }
+
+    private fun formatOrderDateForDialog(value: String?): String {
+        if (value.isNullOrBlank()) return "—"
+        return try {
+            val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val fallback = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val out = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale("ru", "RU"))
+            val d = parser.parse(value) ?: fallback.parse(value)
+            if (d != null) out.format(d) else value.take(16)
+        } catch (_: Exception) {
+            value.take(16)
+        }
+    }
+
+    private fun orderStageShortLabel(order: BuildsApi.Order, isAssembler: Boolean): String {
+        val st = order.status?.lowercase(Locale.ROOT) ?: ""
+        return when {
+            st == "received" -> getString(R.string.order_detail_stage_received)
+            st == "sent" ->
+                if (isAssembler) getString(R.string.order_detail_stage_sent_assembler)
+                else getString(R.string.order_detail_stage_sent_customer)
+            st == "new" ->
+                if (isAssembler) getString(R.string.order_detail_stage_new_assembler)
+                else getString(R.string.order_detail_stage_new_customer)
+            else -> order.status ?: "—"
+        }
+    }
+
+    private fun showOrderDetailDialog(order: BuildsApi.Order) {
+        val density = resources.displayMetrics.density
+        val pad = (20 * density).toInt()
+        val scroll = ScrollView(this)
+
+        val accent = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary, 0)
+        val valueColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface, 0)
+        val mutedColor = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant, 0)
+
+        val ssb = SpannableStringBuilder()
+
+        fun appendSectionTitle(title: String) {
+            if (ssb.isNotEmpty()) ssb.append('\n')
+            val start = ssb.length
+            ssb.append(title).append('\n')
+            val end = start + title.length
+            ssb.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            ssb.setSpan(ForegroundColorSpan(accent), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+
+        fun appendValueLine(text: String) {
+            val start = ssb.length
+            ssb.append(text).append('\n')
+            ssb.setSpan(ForegroundColorSpan(valueColor), start, ssb.length - 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+
+        fun appendMutedLine(text: String) {
+            val start = ssb.length
+            ssb.append(text).append('\n')
+            ssb.setSpan(ForegroundColorSpan(mutedColor), start, ssb.length - 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+
+        fun appendLabeledLine(label: String, value: String) {
+            val lineStart = ssb.length
+            val labelWithColon = "$label: "
+            ssb.append(labelWithColon)
+            val afterLabel = ssb.length
+            ssb.append(value).append('\n')
+            ssb.setSpan(StyleSpan(Typeface.BOLD), lineStart, afterLabel, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            ssb.setSpan(ForegroundColorSpan(accent), lineStart, afterLabel, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            ssb.setSpan(ForegroundColorSpan(valueColor), afterLabel, ssb.length - 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+
+        appendSectionTitle(getString(R.string.order_detail_section_recipient))
+        appendValueLine(order.customer_name)
+        appendValueLine(order.customer_phone)
+        appendValueLine(order.customer_email)
+
+        appendSectionTitle(getString(R.string.order_detail_section_address))
+        appendValueLine(order.shipping_address)
+
+        if (!order.comment.isNullOrBlank()) {
+            appendSectionTitle(getString(R.string.order_detail_section_comment))
+            appendValueLine(order.comment.trim())
+        }
+
+        appendSectionTitle(getString(R.string.order_detail_section_items))
+        val items = order.items_json
+        if (items.isNullOrEmpty()) {
+            appendMutedLine(getString(R.string.order_detail_items_empty))
+        } else {
+            for (it in items) {
+                val unit = when (val p = it.price) {
+                    is Number -> p.toDouble()
+                    is String -> p.replace(",", ".").toDoubleOrNull() ?: 0.0
+                    else -> p?.toString()?.replace(",", ".")?.toDoubleOrNull() ?: 0.0
+                }
+                val lineTotal = unit * it.quantity
+                val line = if (it.quantity <= 1) {
+                    getString(R.string.order_detail_item_qty_one, it.name, priceStr(lineTotal))
+                } else {
+                    getString(
+                        R.string.order_detail_item_qty_many,
+                        it.name,
+                        it.quantity,
+                        priceStr(unit),
+                        priceStr(lineTotal)
+                    )
+                }
+                appendMutedLine(line)
+            }
+        }
+
+        ssb.append('\n')
+        appendLabeledLine(getString(R.string.order_detail_lbl_total), priceStr(order.total_rub))
+
+        appendSectionTitle(getString(R.string.order_detail_section_timeline))
+        appendLabeledLine(
+            getString(R.string.order_detail_lbl_stage),
+            orderStageShortLabel(order, sessionManager.isAssembler)
+        )
+        appendLabeledLine(getString(R.string.order_detail_lbl_created), formatOrderDateForDialog(order.created_at))
+        if (!order.completed_at.isNullOrBlank()) {
+            appendLabeledLine(getString(R.string.order_detail_lbl_sent), formatOrderDateForDialog(order.completed_at))
+        }
+        if (!order.received_at.isNullOrBlank()) {
+            appendLabeledLine(getString(R.string.order_detail_lbl_received), formatOrderDateForDialog(order.received_at))
+        }
+        if (sessionManager.isAssembler) {
+            ssb.append('\n')
+            appendLabeledLine(getString(R.string.order_detail_lbl_client_id), order.user_id.toString())
+        }
+
+        val messageTv = TextView(this).apply {
+            text = ssb
+            textSize = 14f
+            setPadding(pad, pad / 2, pad, pad)
+            setTextColor(mutedColor)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                breakStrategy = Layout.BREAK_STRATEGY_SIMPLE
+                hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
+            }
+        }
+        scroll.addView(messageTv)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.order_detail_title, order.id))
+            .setView(scroll)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     private fun showComponentDetailDialog(detail: BuildsApi.ComponentDetail) {
@@ -1230,21 +1762,164 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupGuidePage() {
         val rv = guidePage.findViewById<RecyclerView>(R.id.guideRecycler)
+        val empty = guidePage.findViewById<TextView>(R.id.guideEmpty)
+        val search = guidePage.findViewById<TextInputEditText>(R.id.guideSearchInput)
         rv.layoutManager = LinearLayoutManager(this)
-        rv.adapter = GuideAdapter(BeginnerGuide.sections)
+        val adapter = GuideAdapter(BeginnerGuide.sections) { count ->
+            empty.visibility = if (count == 0) View.VISIBLE else View.GONE
+        }
+        rv.adapter = adapter
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                adapter.setFilter(s?.toString().orEmpty())
+            }
+        })
+    }
+
+    private fun setupOrdersPage() {
+        val swipe = ordersPage.findViewById<SwipeRefreshLayout>(R.id.ordersSwipeRefresh)
+        val recycler = ordersPage.findViewById<RecyclerView>(R.id.ordersRecycler)
+        val emptyState = ordersPage.findViewById<View>(R.id.ordersEmptyState)
+        val empty = ordersPage.findViewById<TextView>(R.id.ordersEmpty)
+        val emptyHint = ordersPage.findViewById<TextView>(R.id.ordersEmptyHint)
+        val emptyCta = ordersPage.findViewById<MaterialButton>(R.id.ordersEmptyCta)
+        val subtitle = ordersPage.findViewById<TextView>(R.id.ordersSubtitle)
+        swipe.setColorSchemeResources(R.color.md_primary, R.color.md_secondary)
+        swipe.setOnRefreshListener { refreshOrdersCallback?.invoke() }
+        recycler.layoutManager = LinearLayoutManager(this)
+        val adapter = OrdersAdapter(
+            emptyList(),
+            { sessionManager.isAssembler },
+            { order ->
+                launchIo(
+                    work = { BuildsApi.completeOrder(sessionManager.token, order.id) },
+                    onMain = { r ->
+                        when (r) {
+                            is BuildsApi.ApiResult.Success -> {
+                                anchoredSnackbar(getString(R.string.order_snackbar_sent, order.id))
+                                refreshOrdersCallback?.invoke()
+                            }
+                            is BuildsApi.ApiResult.Error -> anchoredSnackbar(r.message)
+                        }
+                    },
+                )
+            },
+            { order ->
+                launchIo(
+                    work = { BuildsApi.confirmOrderReceipt(sessionManager.token, order.id) },
+                    onMain = { r ->
+                        when (r) {
+                            is BuildsApi.ApiResult.Success -> {
+                                anchoredSnackbar(getString(R.string.order_snackbar_received, order.id))
+                                refreshOrdersCallback?.invoke()
+                            }
+                            is BuildsApi.ApiResult.Error -> anchoredSnackbar(r.message)
+                        }
+                    },
+                )
+            },
+            { order -> showOrderDetailDialog(order) },
+        )
+        recycler.adapter = adapter
+        refreshOrdersCallback = ordersRefresh@{
+            fun applyGuestEmpty() {
+                swipe.isRefreshing = false
+                recycler.visibility = View.INVISIBLE
+                emptyState.visibility = View.VISIBLE
+                empty.setText(R.string.orders_empty_customer)
+                emptyHint.visibility = View.VISIBLE
+                emptyHint.setText(R.string.orders_empty_hint_guest)
+                emptyCta.visibility = View.VISIBLE
+                emptyCta.setText(R.string.orders_empty_cta_login)
+                emptyCta.setOnClickListener { showAuthOverlay(registerMode = false) }
+            }
+            if (!sessionManager.isLoggedIn) {
+                applyGuestEmpty()
+                return@ordersRefresh
+            }
+            subtitle.text = if (sessionManager.isAssembler) {
+                getString(R.string.orders_subtitle_assembler)
+            } else {
+                getString(R.string.orders_subtitle_customer)
+            }
+            emptyCta.setOnClickListener { showPageById(R.id.navigation_build) }
+            launchIo(
+                work = {
+                    if (sessionManager.isAssembler) {
+                        BuildsApi.assemblerOrders(sessionManager.token)
+                    } else {
+                        BuildsApi.myOrders(sessionManager.token)
+                    }
+                },
+                onMain = { r ->
+                    swipe.isRefreshing = false
+                    when (r) {
+                        is BuildsApi.ApiResult.Success -> {
+                            adapter.setData(r.data)
+                            if (r.data.isEmpty()) {
+                                recycler.visibility = View.INVISIBLE
+                                emptyState.visibility = View.VISIBLE
+                                val assembler = sessionManager.isAssembler
+                                empty.text = if (assembler) {
+                                    getString(R.string.orders_empty_assembler)
+                                } else {
+                                    getString(R.string.orders_empty_customer)
+                                }
+                                emptyHint.visibility = View.VISIBLE
+                                emptyHint.text = if (assembler) {
+                                    getString(R.string.orders_empty_hint_assembler)
+                                } else {
+                                    getString(R.string.orders_empty_hint_customer)
+                                }
+                                if (assembler) {
+                                    emptyCta.visibility = View.GONE
+                                } else {
+                                    emptyCta.visibility = View.VISIBLE
+                                    emptyCta.setText(R.string.orders_empty_cta_build)
+                                }
+                            } else {
+                                emptyState.visibility = View.GONE
+                                recycler.visibility = View.VISIBLE
+                            }
+                        }
+                        is BuildsApi.ApiResult.Error -> {
+                            recycler.visibility = View.INVISIBLE
+                            emptyState.visibility = View.VISIBLE
+                            empty.text = r.message
+                            emptyHint.visibility = View.GONE
+                            emptyCta.visibility = View.GONE
+                        }
+                    }
+                },
+            )
+        }
+    }
+
+    private fun anchoredSnackbar(message: CharSequence, length: Int = Snackbar.LENGTH_SHORT) {
+        Snackbar.make(findViewById(R.id.main), message, length)
+            .setAnchorView(bottomNavigationView)
+            .show()
     }
 
     private fun setupHomePage() {
+        // Корень page_home — SwipeRefreshLayout; id homeSwipeRefresh в XML заменяется на homePage из <include android:id="@+id/homePage" />.
+        val homeSwipeRefresh = homePage as SwipeRefreshLayout
+        homeSwipeRefresh.setColorSchemeResources(R.color.md_primary, R.color.md_secondary)
+        homeSwipeRefresh.setOnRefreshListener { refreshHomeBuildsCard?.invoke() }
         val homeMyBuildsCard = homePage.findViewById<View>(R.id.homeMyBuildsCard)
         val homeMyBuildsSubtitle = homePage.findViewById<TextView>(R.id.homeMyBuildsSubtitle)
         refreshHomeBuildsCard = {
             if (sessionManager.token.isNullOrBlank()) {
                 homeMyBuildsCard.visibility = View.VISIBLE
                 homeMyBuildsSubtitle.text = getString(R.string.home_my_builds_guest)
+                homeSwipeRefresh.isRefreshing = false
             } else {
-                Thread {
-                    val r = BuildsApi.builds(sessionManager.token)
-                    runOnUiThread {
+                launchIo(
+                    work = { BuildsApi.builds(sessionManager.token) },
+                    onMain = { r ->
+                        homeSwipeRefresh.isRefreshing = false
                         homeMyBuildsCard.visibility = View.VISIBLE
                         when (r) {
                             is BuildsApi.ApiResult.Success -> {
@@ -1257,8 +1932,8 @@ class MainActivity : AppCompatActivity() {
                             }
                             else -> homeMyBuildsSubtitle.text = getString(R.string.home_my_builds_empty)
                         }
-                    }
-                }.start()
+                    },
+                )
             }
         }
         homeMyBuildsCard.setOnClickListener { showPageById(R.id.navigation_build) }
@@ -1274,21 +1949,10 @@ class MainActivity : AppCompatActivity() {
                 pendingPickerSearchQuery = query?.takeIf { it.isNotEmpty() }
                 openBuildPageWithCategory?.invoke(null)
                 if (!query.isNullOrEmpty()) {
-                    Snackbar.make(homePage, "Идём в каталог: «$query»", Snackbar.LENGTH_SHORT).show()
+                    anchoredSnackbar(getString(R.string.snackbar_catalog_search, query))
                 }
                 true
             } else false
-        }
-        val categorySlugs = mapOf(
-            R.id.homeCategoryProcessors to "processors",
-            R.id.homeCategoryGpu to "gpu",
-            R.id.homeCategoryRam to "ram",
-            R.id.homeCategoryStorage to "storage"
-        )
-        categorySlugs.forEach { (id, slug) ->
-            homePage.findViewById<View>(id).setOnClickListener {
-                openBuildPageWithCategory?.invoke(slug)
-            }
         }
         homePage.findViewById<View>(R.id.homeRecommendedGaming).setOnClickListener {
             createPresetBuildAndOpen?.invoke("Gaming сборка", "gaming") ?: showPageById(R.id.navigation_build)
@@ -1302,6 +1966,7 @@ class MainActivity : AppCompatActivity() {
         bottomNavigationView.setOnItemSelectedListener { menuItem ->
             // Не вызывать showPageById повторно при программной установке selectedItemId (иначе рекурсия и падение)
             if (currentPageId == menuItem.itemId) return@setOnItemSelectedListener true
+            bottomNavigationView.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
             when (menuItem.itemId) {
                 R.id.navigation_home -> {
                     showPageById(R.id.navigation_home)
@@ -1311,12 +1976,12 @@ class MainActivity : AppCompatActivity() {
                     showPageById(R.id.navigation_build)
                     true
                 }
-                R.id.navigation_cart -> {
-                    showPageById(R.id.navigation_cart)
-                    true
-                }
                 R.id.navigation_ai_chat -> {
                     showPageById(R.id.navigation_ai_chat)
+                    true
+                }
+                R.id.navigation_orders -> {
+                    showPageById(R.id.navigation_orders)
                     true
                 }
                 else -> false
@@ -1328,8 +1993,8 @@ class MainActivity : AppCompatActivity() {
         homePage.visibility = View.GONE
         settingsPage.visibility = View.GONE
         buildPage.visibility = View.GONE
-        cartPage.visibility = View.GONE
         aiChatPage.visibility = View.GONE
+        ordersPage.visibility = View.GONE
         profilePage.visibility = View.GONE
         guidePage.visibility = View.GONE
         pageToShow.visibility = View.VISIBLE
@@ -1339,7 +2004,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadSettings() {
         val sharedPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val selectedTheme = sharedPrefs.getInt(THEME_KEY, AppCompatDelegate.MODE_NIGHT_NO) // По умолчанию светлая
+        val raw = sharedPrefs.getInt(THEME_KEY, AppCompatDelegate.MODE_NIGHT_NO)
+        val selectedTheme = when (raw) {
+            AppCompatDelegate.MODE_NIGHT_NO, AppCompatDelegate.MODE_NIGHT_YES -> raw
+            else -> AppCompatDelegate.MODE_NIGHT_NO
+        }
+        if (raw != selectedTheme) {
+            sharedPrefs.edit().putInt(THEME_KEY, selectedTheme).apply()
+        }
 
         // Применить сохраненную тему ДО setContentView
         AppCompatDelegate.setDefaultNightMode(selectedTheme)
@@ -1384,33 +2056,6 @@ class MainActivity : AppCompatActivity() {
             saveNotifications(isChecked)
             Log.d("Settings", "Уведомления ${if (isChecked) "включены" else "отключены"}")
         }
-
-        serverUrlSaveButton.setOnClickListener {
-            val raw = serverUrlInput.text?.toString()?.trim().orEmpty()
-            if (raw.isEmpty()) {
-                ApiConfig.setOverride(null)
-                updateServerUrlSettingsUi()
-                Snackbar.make(settingsPage, getString(R.string.settings_server_saved), Snackbar.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            if (!raw.startsWith("http://", ignoreCase = true) && !raw.startsWith("https://", ignoreCase = true)) {
-                Snackbar.make(settingsPage, getString(R.string.settings_server_invalid_url), Snackbar.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            ApiConfig.setOverride(raw)
-            updateServerUrlSettingsUi()
-            Snackbar.make(settingsPage, getString(R.string.settings_server_saved), Snackbar.LENGTH_SHORT).show()
-        }
-        serverUrlResetButton.setOnClickListener {
-            ApiConfig.setOverride(null)
-            serverUrlInput.setText("")
-            updateServerUrlSettingsUi()
-            Snackbar.make(settingsPage, getString(R.string.settings_server_saved), Snackbar.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun updateServerUrlSettingsUi() {
-        serverUrlEffectiveText.text = getString(R.string.settings_server_effective, ApiConfig.baseUrl())
     }
 
     // Этот метод вызывается каждый раз при открытии страницы настроек
@@ -1432,18 +2077,16 @@ class MainActivity : AppCompatActivity() {
             }
             // Можно добавить другие режимы, если используете AUTO и т.д.
             else -> {
-                // Если не NO и не YES, установим NO как fallback
-                themeToggleGroup.clearChecked()
-                Log.d("Settings", "UI: Установлена тема по умолчанию (светлая)")
+                // selectionRequired=true: нельзя clearChecked(); сбрасываем в светлую и правим prefs
+                saveTheme(AppCompatDelegate.MODE_NIGHT_NO)
+                themeToggleGroup.check(R.id.lightThemeButton)
+                Log.d("Settings", "UI: Неизвестный режим темы — сброшено на светлую")
             }
         }
 
         // Обновить Switch в соответствии с сохраненным состоянием уведомлений
         notificationsSwitch.isChecked = notificationsEnabled
         Log.d("Settings", "UI: Переключатель уведомлений обновлен на ${if (notificationsEnabled) "вкл" else "выкл"}")
-
-        serverUrlInput.setText(ApiConfig.getOverride() ?: "")
-        updateServerUrlSettingsUi()
     }
 
     // --- Методы для работы с чатом ---
@@ -1556,23 +2199,39 @@ class MainActivity : AppCompatActivity() {
 
     /** Добавляет только view сообщения (для восстановления истории). */
     private fun addMessageBubble(text: String, isUser: Boolean) {
-        val messageTextView = TextView(this)
-        messageTextView.text = text
-        messageTextView.textSize = 16f
-        messageTextView.setPadding(24, 16, 24, 16)
+        val maxBubble = (resources.displayMetrics.widthPixels * 0.8f).toInt()
+        val messageTextView = TextView(this).apply {
+            this.text = text
+            textSize = 15.5f
+            maxWidth = maxBubble
+            setLineSpacing(2f, 1.08f)
+            setPadding(20, 14, 20, 14)
+            if (isUser) {
+                setBackgroundResource(R.drawable.user_message_background)
+                setTextColor(resources.getColor(R.color.text_on_user_message_bg, theme))
+            } else {
+                setBackgroundResource(R.drawable.ai_message_background)
+                setTextColor(resources.getColor(R.color.text_on_ai_message_bg, theme))
+            }
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        val spacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+        }
+        val bubbleLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         if (isUser) {
-            messageTextView.gravity = Gravity.END
-            messageTextView.setBackgroundResource(R.drawable.user_message_background)
-            messageTextView.setTextColor(resources.getColor(R.color.text_on_user_message_bg, theme))
+            row.addView(spacer)
+            row.addView(messageTextView, bubbleLp)
         } else {
-            messageTextView.gravity = Gravity.START
-            messageTextView.setBackgroundResource(R.drawable.ai_message_background)
-            messageTextView.setTextColor(resources.getColor(R.color.text_on_ai_message_bg, theme))
+            row.addView(messageTextView, bubbleLp)
+            row.addView(spacer)
         }
         val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = messageSpacingPx
         }
-        messagesContainer.addView(messageTextView, params)
+        messagesContainer.addView(row, params)
     }
 
     private fun addMessageToContainer(text: String, isUser: Boolean) {
@@ -1713,44 +2372,43 @@ class MainActivity : AppCompatActivity() {
         for (s in suggestions) {
             val card = LayoutInflater.from(this).inflate(R.layout.item_ai_suggestion, wrap, false)
             card.findViewById<TextView>(R.id.suggestionTitle).text = s.name
-            card.findViewById<TextView>(R.id.suggestionDescription).text = s.description ?: ""
+            val descTv = card.findViewById<TextView>(R.id.suggestionDescription)
+            val desc = s.description?.trim().orEmpty()
+            if (desc.isNotEmpty()) {
+                descTv.text = desc
+                descTv.visibility = View.VISIBLE
+            } else {
+                descTv.visibility = View.GONE
+            }
+
+            val prosBlock = card.findViewById<View>(R.id.suggestionProsBlock)
+            val consBlock = card.findViewById<View>(R.id.suggestionConsBlock)
             val prosView = card.findViewById<TextView>(R.id.suggestionPros)
             val consView = card.findViewById<TextView>(R.id.suggestionCons)
-            val addBtn = card.findViewById<MaterialButton>(R.id.suggestionAddButton)
 
             if (!s.pros.isNullOrEmpty()) {
-                prosView.text = s.pros.joinToString("\n") { "✓ $it" }
-                prosView.visibility = View.VISIBLE
-            } else prosView.visibility = View.GONE
+                prosView.text = s.pros.joinToString("\n") { "• $it" }
+                prosBlock.visibility = View.VISIBLE
+            } else prosBlock.visibility = View.GONE
 
             if (!s.cons.isNullOrEmpty()) {
-                consView.text = s.cons.joinToString("\n") { "⚠ $it" }
-                consView.visibility = View.VISIBLE
-            } else consView.visibility = View.GONE
+                consView.text = s.cons.joinToString("\n") { "• $it" }
+                consBlock.visibility = View.VISIBLE
+            } else consBlock.visibility = View.GONE
+
+            val addBtn = card.findViewById<MaterialButton>(R.id.suggestionAddButton)
+            val detailsBtn = card.findViewById<MaterialButton>(R.id.suggestionDetailsButton)
 
             if (!s.componentIds.isNullOrEmpty()) {
                 addBtn.visibility = View.VISIBLE
-                addBtn.text = "Сохранить сборку (${s.componentIds.size} компонентов)"
+                detailsBtn.visibility = View.VISIBLE
+                addBtn.text = getString(R.string.ai_suggestion_save_build_with_count, s.componentIds.size)
                 addBtn.setOnClickListener { onAddSuggestionToBuilds(s) }
-
-                // Кнопка «Детали» — показывает компоненты сборки
-                val detailsBtn = card.findViewWithTag<MaterialButton?>("details_btn")
-                if (detailsBtn == null) {
-                    val btn = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                        tag = "details_btn"
-                        text = "Состав сборки"
-                        layoutParams = LinearLayout.LayoutParams(
-                            LinearLayout.LayoutParams.MATCH_PARENT,
-                            LinearLayout.LayoutParams.WRAP_CONTENT
-                        ).apply { topMargin = (8 * resources.displayMetrics.density).toInt() }
-                        setOnClickListener { showSuggestionDetails(s) }
-                    }
-                    (card as? android.view.ViewGroup)?.let { vg ->
-                        val innerLayout = vg.getChildAt(0) as? LinearLayout
-                        innerLayout?.addView(btn, innerLayout.indexOfChild(addBtn))
-                    }
-                }
-            } else addBtn.visibility = View.GONE
+                detailsBtn.setOnClickListener { showSuggestionDetails(s) }
+            } else {
+                addBtn.visibility = View.GONE
+                detailsBtn.visibility = View.GONE
+            }
             wrap.addView(card)
         }
         messagesContainer.addView(wrap, wrapParams)
@@ -1879,6 +2537,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Убирает хвосты «(копия)» / «(копия N)», чтобы новая копия называлась «Имя (копия 2)», «(копия 3)», … */
+    private fun stemBuildNameForCopy(name: String): String {
+        var s = name.trim()
+        val rx = Regex("""(?:\s*\(копия(?:\s+\d+)?\)\s*)+$""", RegexOption.IGNORE_CASE)
+        s = s.replace(rx, "").trim()
+        return s.ifBlank { name.trim() }
+    }
 
     fun onCategoryClick(view: View) {
         // Здесь будет обработка клика по категории

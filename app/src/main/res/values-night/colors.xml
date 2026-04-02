@@ -41,4 +41,16 @@
     <color name="bubble_ai">@color/md_surface_variant</color>
     <color name="hero_gradient_start">#4F46E5</color>
     <color name="hero_gradient_end">#7C3AED</color>
+
+    <color name="ai_suggestion_accent">#818CF8</color>
+    <color name="ai_suggestion_badge_bg">#312E81</color>
+    <color name="ai_suggestion_badge_text">#C7D2FE</color>
+    <color name="ai_suggestion_desc_bg">#334155</color>
+    <color name="ai_pros_block_bg">#064E3B</color>
+    <color name="ai_pros_block_text">#6EE7B7</color>
+    <color name="ai_pros_label">#34D399</color>
+    <color name="ai_cons_block_bg">#78350F</color>
+    <color name="ai_cons_block_text">#FCD34D</color>
+    <color name="ai_cons_label">#FBBF24</color>
+    <color name="ai_details_button_bg">#3730A3</color>
 </resources>

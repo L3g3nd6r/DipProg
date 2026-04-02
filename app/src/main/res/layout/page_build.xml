@@ -5,10 +5,24 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/buildMainTabs"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        android:elevation="1dp"
+        app:tabIndicatorColor="?attr/colorPrimary"
+        app:tabIndicatorFullWidth="false"
+        app:tabMode="fixed"
+        app:tabRippleColor="?attr/colorPrimaryContainer"
+        app:tabSelectedTextColor="?attr/colorPrimary"
+        app:tabTextColor="?attr/colorOnSurfaceVariant" />
+
     <FrameLayout
         android:id="@+id/buildPageContentContainer"
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="0dp"
+        android:layout_weight="1">
 
         <include
             layout="@layout/content_build_list"
@@ -22,6 +36,11 @@
         <include
             layout="@layout/content_component_picker_full"
             android:id="@+id/componentPickerInclude"
+            android:visibility="gone" />
+
+        <include
+            layout="@layout/content_cart"
+            android:id="@+id/buildCartInclude"
             android:visibility="gone" />
 
     </FrameLayout>

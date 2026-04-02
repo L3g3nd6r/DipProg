@@ -9,6 +9,7 @@ val localProperties = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.reader(Charsets.UTF_8)?.use { load(it) }
 }
 val apiBaseUrl = localProperties.getProperty("api.base.url", "http://10.0.2.2:3000")
+    .trim().trimEnd('/')
 
 android {
     namespace = "com.example.dipprog"
@@ -33,7 +34,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -61,6 +63,9 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.gson)
     implementation(libs.coil)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

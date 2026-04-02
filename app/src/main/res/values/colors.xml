@@ -50,4 +50,18 @@
     <color name="bubble_ai">@color/md_surface_variant</color>
     <color name="hero_gradient_start">#6366F1</color>
     <color name="hero_gradient_end">#8B5CF6</color>
+
+    <!-- ИИ: карточка сборки -->
+    <color name="ai_suggestion_accent">#6366F1</color>
+    <color name="ai_suggestion_badge_bg">#EEF2FF</color>
+    <color name="ai_suggestion_badge_text">#4338CA</color>
+    <color name="ai_suggestion_desc_bg">#F1F5F9</color>
+    <color name="ai_pros_block_bg">#ECFDF5</color>
+    <color name="ai_pros_block_text">#047857</color>
+    <color name="ai_pros_label">#059669</color>
+    <color name="ai_cons_block_bg">#FFFBEB</color>
+    <color name="ai_cons_block_text">#B45309</color>
+    <color name="ai_cons_label">#D97706</color>
+    <!-- Кнопка «Состав» (outlined) — чуть темнее стандартной лавандовой заливки -->
+    <color name="ai_details_button_bg">#D0D7F7</color>
 </resources>
