@@ -148,7 +148,13 @@ if (require.main === module) {
 } else {
   // Serverless-хостинг (Vercel): экспортируем обработчик
   module.exports = async (req, res) => {
-    await initIfNeeded();
+    try {
+      await initIfNeeded();
+    } catch (err) {
+      console.error('initIfNeeded failed:', err);
+      res.status(500).json({ error: 'Ошибка инициализации сервера: ' + (err.message || err) });
+      return;
+    }
     app(req, res);
   };
 }

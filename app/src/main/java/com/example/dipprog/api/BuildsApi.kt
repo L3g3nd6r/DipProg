@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 
 object BuildsApi {
 
-    private val BASE_URL = com.example.dipprog.BuildConfig.BASE_URL
+    private val BASE_URL = ApiBaseUrl.value
     private val client get() = ApiHttp.client
     private val gson = Gson()
     private val jsonType = "application/json; charset=utf-8".toMediaType()
@@ -385,14 +385,26 @@ object BuildsApi {
         return this
     }
 
+    /** Проверяет, что тело ответа выглядит как JSON-объект или массив, а не HTML/текст. */
+    private fun bodyErrorOrNull(body: String, code: Int): String? {
+        val trimmed = body.trim()
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            return try { gson.fromJson(trimmed, ErrorResp::class.java)?.error } catch (_: Exception) { null }
+        }
+        return "Сервер недоступен (код $code). Попробуйте позже."
+    }
+
     private fun <T> getList(req: Request, parse: (String) -> List<T>): ApiResult<List<T>> {
         return try {
             val resp = client.newCall(req).execute()
             val body = resp.body?.string() ?: ""
-            if (!resp.isSuccessful) return ApiResult.Error(gson.fromJson(body, ErrorResp::class.java)?.error ?: "Ошибка ${resp.code}")
-            ApiResult.Success(parse(body))
+            if (!resp.isSuccessful) return ApiResult.Error(bodyErrorOrNull(body, resp.code) ?: "Ошибка ${resp.code}")
+            val trimmed = body.trim()
+            if (!trimmed.startsWith("{") && !trimmed.startsWith("["))
+                return ApiResult.Error("Сервер недоступен. Попробуйте позже.")
+            ApiResult.Success(parse(trimmed))
         } catch (e: Exception) {
-            ApiResult.Error(e.message ?: "Нет связи с сервером")
+            ApiResult.Error("Нет связи с сервером")
         }
     }
 
@@ -400,10 +412,13 @@ object BuildsApi {
         return try {
             val resp = client.newCall(req).execute()
             val body = resp.body?.string() ?: ""
-            if (!resp.isSuccessful) return ApiResult.Error(gson.fromJson(body, ErrorResp::class.java)?.error ?: "Ошибка ${resp.code}")
-            ApiResult.Success(parse(body))
+            if (!resp.isSuccessful) return ApiResult.Error(bodyErrorOrNull(body, resp.code) ?: "Ошибка ${resp.code}")
+            val trimmed = body.trim()
+            if (!trimmed.startsWith("{") && !trimmed.startsWith("["))
+                return ApiResult.Error("Сервер недоступен. Попробуйте позже.")
+            ApiResult.Success(parse(trimmed))
         } catch (e: Exception) {
-            ApiResult.Error(e.message ?: "Нет связи с сервером")
+            ApiResult.Error("Нет связи с сервером")
         }
     }
 
@@ -411,10 +426,10 @@ object BuildsApi {
         return try {
             val resp = client.newCall(req).execute()
             val body = resp.body?.string() ?: ""
-            if (!resp.isSuccessful) return ApiResult.Error(gson.fromJson(body, ErrorResp::class.java)?.error ?: "Ошибка ${resp.code}")
+            if (!resp.isSuccessful) return ApiResult.Error(bodyErrorOrNull(body, resp.code) ?: "Ошибка ${resp.code}")
             ApiResult.Success(Unit)
         } catch (e: Exception) {
-            ApiResult.Error(e.message ?: "Нет связи с сервером")
+            ApiResult.Error("Нет связи с сервером")
         }
     }
 
