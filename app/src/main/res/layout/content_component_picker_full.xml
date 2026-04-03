@@ -26,22 +26,19 @@
             android:layout_height="wrap_content"
             android:text="Назад" />
 
-        <TextView
+        <View
             android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1" />
+
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
+            android:layout_gravity="center_vertical|end"
+            android:paddingEnd="12dp"
             android:text="Каталог"
             android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
             android:textColor="?attr/colorOnSurface" />
-
-        <!-- Балансирующий спейсер — ширина совпадает с кнопкой Назад, чтобы заголовок был по центру экрана -->
-        <com.google.android.material.button.MaterialButton
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Назад"
-            android:visibility="invisible" />
     </LinearLayout>
 
     <!-- Поиск -->
