@@ -84,6 +84,10 @@ async function ensureRuntimeSchema() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_order_notifications_user ON order_notifications(user_id)`);
 
+  // ОЗУ и накопители допускают несколько в сборке
+  await pool.query(`UPDATE component_categories SET max_per_build = 4 WHERE slug = 'ram' AND max_per_build < 4`);
+  await pool.query(`UPDATE component_categories SET max_per_build = 2 WHERE slug = 'storage' AND max_per_build < 2`);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pending_registrations (
       id SERIAL PRIMARY KEY,

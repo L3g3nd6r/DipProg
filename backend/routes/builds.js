@@ -1,21 +1,36 @@
 const express = require('express');
 const { getPresetComponentIds } = require('../services/ai-suggest');
+const { filterProfanity } = require('../services/profanity');
 
 function createRouter(pool, authMiddleware) {
   const router = express.Router();
 
   router.use(authMiddleware);
 
-  async function assertUniqueBuildName(userId, name, excludeBuildId = null) {
-    const trimmed = (name && String(name).trim()) || '';
-    if (!trimmed) return { ok: false, error: 'Укажите имя сборки' };
+  async function isBuildNameTaken(userId, name, excludeBuildId) {
     const q = excludeBuildId != null
       ? `SELECT id FROM builds WHERE user_id = $1 AND lower(trim(name)) = lower(trim($2)) AND id <> $3 LIMIT 1`
       : `SELECT id FROM builds WHERE user_id = $1 AND lower(trim(name)) = lower(trim($2)) LIMIT 1`;
-    const params = excludeBuildId != null ? [userId, trimmed, excludeBuildId] : [userId, trimmed];
+    const params = excludeBuildId != null ? [userId, name, excludeBuildId] : [userId, name];
     const r = await pool.query(q, params);
-    if (r.rows.length > 0) return { ok: false, error: 'Сборка с таким названием уже существует' };
-    return { ok: true, name: trimmed };
+    return r.rows.length > 0;
+  }
+
+  // Генерирует уникальное имя: "Название", "Название (2)", "Название (3)", ...
+  async function generateUniqueBuildName(userId, rawName, excludeBuildId = null) {
+    const base = filterProfanity((rawName && String(rawName).trim()) || '');
+    if (!base) return { ok: false, error: 'Укажите имя сборки' };
+    const stripped = base.replace(/\s*\(\d+\)$/, '').trim();
+    if (!(await isBuildNameTaken(userId, stripped, excludeBuildId))) {
+      return { ok: true, name: stripped };
+    }
+    for (let i = 2; i <= 100; i++) {
+      const candidate = `${stripped} (${i})`;
+      if (!(await isBuildNameTaken(userId, candidate, excludeBuildId))) {
+        return { ok: true, name: candidate };
+      }
+    }
+    return { ok: false, error: 'Слишком много сборок с таким названием' };
   }
 
   async function insertBuildWithComponents(userId, buildName, ids) {
@@ -65,8 +80,8 @@ function createRouter(pool, authMiddleware) {
       const userId = req.user.userId;
       const { name } = req.body || {};
       const buildName = (name && String(name).trim()) || 'Новая сборка';
-      const check = await assertUniqueBuildName(userId, buildName);
-      if (!check.ok) return res.status(409).json({ error: check.error });
+      const check = await generateUniqueBuildName(userId, buildName);
+      if (!check.ok) return res.status(400).json({ error: check.error });
       const result = await pool.query(
         'INSERT INTO builds (user_id, name) VALUES ($1, $2) RETURNING id, name, created_at, updated_at',
         [userId, check.name]
@@ -91,8 +106,8 @@ function createRouter(pool, authMiddleware) {
       const userId = req.user.userId;
       const { name, component_ids } = req.body || {};
       const buildName = (name && String(name).trim()) || 'Сборка из ИИ';
-      const check = await assertUniqueBuildName(userId, buildName);
-      if (!check.ok) return res.status(409).json({ error: check.error });
+      const check = await generateUniqueBuildName(userId, buildName);
+      if (!check.ok) return res.status(400).json({ error: check.error });
       const ids = Array.isArray(component_ids) ? component_ids.map((id) => parseInt(id, 10)).filter((id) => Number.isInteger(id) && id > 0) : [];
       const build = await insertBuildWithComponents(userId, check.name, ids);
       res.status(201).json(build);
@@ -115,8 +130,8 @@ function createRouter(pool, authMiddleware) {
       const userId = req.user.userId;
       const { name, preset } = req.body || {};
       const buildName = (name && String(name).trim()) || 'Новая сборка';
-      const check = await assertUniqueBuildName(userId, buildName);
-      if (!check.ok) return res.status(409).json({ error: check.error });
+      const check = await generateUniqueBuildName(userId, buildName);
+      if (!check.ok) return res.status(400).json({ error: check.error });
       const ids = await getPresetComponentIds(pool, preset);
       if (!ids.length) {
         return res.status(503).json({ error: 'Каталог пуст или не удалось подобрать комплектующие' });
@@ -229,8 +244,8 @@ function createRouter(pool, authMiddleware) {
       if (!buildName) {
         return res.status(400).json({ error: 'Укажите имя сборки' });
       }
-      const check = await assertUniqueBuildName(userId, buildName, buildId);
-      if (!check.ok) return res.status(409).json({ error: check.error });
+      const check = await generateUniqueBuildName(userId, buildName, buildId);
+      if (!check.ok) return res.status(400).json({ error: check.error });
       const result = await pool.query(
         'UPDATE builds SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND user_id = $3 RETURNING id, name, updated_at',
         [check.name, buildId, userId]

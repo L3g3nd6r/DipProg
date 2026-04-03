@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
+const { filterProfanity } = require('../services/profanity');
 
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
@@ -62,6 +63,7 @@ function createAuthRouter(pool, { jwtSecret, mapUserResponse, authMiddleware }) 
         return res.status(409).json({ error: 'Пользователь с таким email уже зарегистрирован' });
       }
 
+      const cleanName = filterProfanity(String(name).trim());
       const passwordHash = await bcrypt.hash(password, 10);
       const code = generateCode();
       const expiresAt = new Date(Date.now() + CODE_TTL_MINUTES * 60 * 1000);
@@ -75,7 +77,7 @@ function createAuthRouter(pool, { jwtSecret, mapUserResponse, authMiddleware }) 
                code = EXCLUDED.code,
                expires_at = EXCLUDED.expires_at,
                created_at = CURRENT_TIMESTAMP`,
-        [emailTrim, String(name).trim(), passwordHash, code, expiresAt]
+        [emailTrim, cleanName, passwordHash, code, expiresAt]
       );
 
       await sendVerificationEmail(emailTrim, code);
@@ -206,7 +208,7 @@ function createAuthRouter(pool, { jwtSecret, mapUserResponse, authMiddleware }) 
       const values = [];
       let i = 1;
       if (name !== undefined) {
-        const n = String(name).trim();
+        const n = filterProfanity(String(name).trim());
         if (n.length === 0) return res.status(400).json({ error: 'Имя не может быть пустым' });
         updates.push(`name = $${i++}`);
         values.push(n);
