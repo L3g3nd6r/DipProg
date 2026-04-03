@@ -1,9 +1,15 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_APP_PASSWORD,
+  },
+});
 
 const CODE_TTL_MINUTES = 10;
 
@@ -11,20 +17,9 @@ function generateCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-/**
- * Без верифицированного домена Resend разрешает слать только на тестовые адреса.
- * Решение: Domains → добавить домен, DNS-записи, затем RESEND_FROM = "DipProg <noreply@ваш-домен.ru>"
- */
 async function sendVerificationEmail(toEmail, code) {
-  const key = String(process.env.RESEND_API_KEY || '').trim();
-  if (!key) {
-    return { ok: false, message: 'На сервере не задан RESEND_API_KEY.' };
-  }
-
-  const from = String(process.env.RESEND_FROM || '').trim() || 'DipProg <onboarding@resend.dev>';
-
-  const { error } = await resend.emails.send({
-    from,
+  await transporter.sendMail({
+    from: `"DipProg" <${process.env.GMAIL_USER}>`,
     to: toEmail,
     subject: 'Код подтверждения регистрации',
     html: `
@@ -37,24 +32,6 @@ async function sendVerificationEmail(toEmail, code) {
       </div>
     `,
   });
-
-  if (error) {
-    const raw = [error.message, error.name, JSON.stringify(error)].filter(Boolean).join(' ');
-    console.error('Resend emails.send error:', error);
-    const lower = raw.toLowerCase();
-    const sandboxHint =
-      lower.includes('only send') ||
-      lower.includes('testing') ||
-      lower.includes('verified email') ||
-      lower.includes('not allowed') ||
-      lower.includes('invalid') && lower.includes('to');
-    const msg = sandboxHint
-      ? 'Почта: без своего домена Resend шлёт код только на тестовый адрес. В Resend → Domains подключите домен, в Vercel задайте RESEND_FROM (например noreply@ваш-домен.ru) и перезапустите деплой.'
-      : 'Не удалось отправить письмо с кодом. Попробуйте позже или обратитесь к администратору.';
-    return { ok: false, message: msg };
-  }
-
-  return { ok: true };
 }
 
 /**
@@ -99,11 +76,7 @@ function createAuthRouter(pool, { jwtSecret, mapUserResponse, authMiddleware }) 
         [emailTrim, String(name).trim(), passwordHash, code, expiresAt]
       );
 
-      const sent = await sendVerificationEmail(emailTrim, code);
-      if (!sent.ok) {
-        await pool.query('DELETE FROM pending_registrations WHERE email = $1', [emailTrim]);
-        return res.status(502).json({ error: sent.message });
-      }
+      await sendVerificationEmail(emailTrim, code);
 
       res.status(200).json({ message: 'Код подтверждения отправлен на ваш email' });
     } catch (err) {
