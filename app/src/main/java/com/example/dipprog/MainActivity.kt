@@ -100,6 +100,30 @@ class MainActivity : AppCompatActivity() {
     private var lastOrderNotificationId: Int = -1
     private var lastOrderNotificationCheckAt: Long = 0L
 
+    private var onGalleryAvatarPicked: ((String) -> Unit)? = null
+    private val galleryPickerLauncher =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            Thread {
+                try {
+                    val stream = contentResolver.openInputStream(uri) ?: return@Thread
+                    val bitmap = android.graphics.BitmapFactory.decodeStream(stream)
+                    stream.close()
+                    if (bitmap == null) return@Thread
+                    val maxDim = 300
+                    val scale = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height, 1f)
+                    val w = (bitmap.width * scale).toInt().coerceAtLeast(1)
+                    val h = (bitmap.height * scale).toInt().coerceAtLeast(1)
+                    val resized = android.graphics.Bitmap.createScaledBitmap(bitmap, w, h, true)
+                    val baos = java.io.ByteArrayOutputStream()
+                    resized.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, baos)
+                    val b64 = android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP)
+                    val dataUri = "data:image/jpeg;base64,$b64"
+                    runOnUiThread { onGalleryAvatarPicked?.invoke(dataUri) }
+                } catch (_: Exception) {}
+            }.start()
+        }
+
     // --- Добавленные поля для настроек ---
     private lateinit var themeToggleGroup: MaterialButtonToggleGroup
     private lateinit var notificationsSwitch: MaterialSwitch
@@ -824,9 +848,12 @@ class MainActivity : AppCompatActivity() {
         var pickerSearchQuery = ""
         val pickerSearchHandler = Handler(Looper.getMainLooper())
         var pickerSearchRunnable: Runnable? = null
+        fun String.normalizeSearch(): String =
+            replace(Regex("[^\\p{L}\\p{N}\\s]"), " ").trim().replace(Regex("\\s+"), " ")
+
         fun loadPickerComponents(catId: Int?, search: String?) {
             Thread {
-                val res = BuildsApi.components(sessionManager.token, catId, search?.trim()?.takeIf { it.isNotEmpty() })
+                val res = BuildsApi.components(sessionManager.token, catId, search?.normalizeSearch()?.takeIf { it.isNotEmpty() })
                 runOnUiThread { if (res is BuildsApi.ApiResult.Success) pickerAdapter.setData(res.data) }
             }.start()
         }
@@ -1284,11 +1311,18 @@ class MainActivity : AppCompatActivity() {
             showAuthOverlay(registerMode = true)
         }
         profilePage.findViewById<MaterialButton>(R.id.profileLogoutButton).setOnClickListener {
-            sessionManager.logout()
-            updateOrdersTabVisibility()
-            updateProfileUI()
-            refreshHomeBuildsCard?.invoke()
-            showAuthOverlay(registerMode = false)
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Выход из аккаунта")
+                .setMessage("Вы уверены, что хотите выйти?")
+                .setPositiveButton("Выйти") { _, _ ->
+                    sessionManager.logout()
+                    updateOrdersTabVisibility()
+                    updateProfileUI()
+                    refreshHomeBuildsCard?.invoke()
+                    showAuthOverlay(registerMode = false)
+                }
+                .setNegativeButton("Отмена", null)
+                .show()
         }
         profilePage.findViewById<MaterialButton>(R.id.profileEditButton).setOnClickListener {
             showEditProfileDialog()
@@ -1504,7 +1538,17 @@ class MainActivity : AppCompatActivity() {
             if (!avatarUrl.isNullOrEmpty()) {
                 avatarInitials.visibility = View.GONE
                 avatarImage.visibility = View.VISIBLE
-                avatarImage.load(avatarUrl) {
+                if (avatarUrl.startsWith("data:")) {
+                    try {
+                        val base64 = avatarUrl.substringAfter(",")
+                        val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        if (bmp != null) avatarImage.setImageBitmap(bmp)
+                        else { avatarImage.visibility = View.GONE; avatarInitials.visibility = View.VISIBLE }
+                    } catch (_: Exception) {
+                        avatarImage.visibility = View.GONE; avatarInitials.visibility = View.VISIBLE
+                    }
+                } else avatarImage.load(avatarUrl) {
                     listener(
                         onError = { _, _ ->
                             runOnUiThread {
@@ -1552,15 +1596,59 @@ class MainActivity : AppCompatActivity() {
         val nameInput = view.findViewById<TextInputEditText>(R.id.editProfileName)
         val avatarUrlInput = view.findViewById<TextInputEditText>(R.id.editProfileAvatarUrl)
         nameInput.setText(sessionManager.userName ?: "")
-        avatarUrlInput.setText(sessionManager.userAvatarUrl ?: "")
+        avatarUrlInput.setText(
+            sessionManager.userAvatarUrl?.takeIf { !it.startsWith("data:") } ?: ""
+        )
+
+        // Кнопка «Выбрать из галереи» — добавляем программно под полем URL
+        val galleryBtn = com.google.android.material.button.MaterialButton(
+            this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle
+        ).apply {
+            text = "Выбрать из галереи"
+            layoutParams = android.view.ViewGroup.MarginLayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            ).also { it.topMargin = (8 * resources.displayMetrics.density).toInt() }
+        }
+        (avatarUrlInput.parent.parent as? android.view.ViewGroup)?.addView(galleryBtn)
+
         val dialog = MaterialAlertDialogBuilder(this)
             .setView(view)
-            .setPositiveButton("Сохранить") { _, _ ->
+            .setPositiveButton("Сохранить", null)
+            .setNegativeButton("Отмена", null)
+            .create()
+
+        onGalleryAvatarPicked = { dataUri ->
+            avatarUrlInput.setText("")
+            // Сразу сохраняем аватар из галереи
+            Thread {
+                val r = AuthApi.updateProfile(sessionManager.token, avatarUrl = dataUri)
+                runOnUiThread {
+                    when (r) {
+                        is AuthApi.ApiResult.Success -> {
+                            sessionManager.userAvatarUrl = dataUri
+                            updateProfileUI()
+                            dialog.dismiss()
+                            Snackbar.make(profilePage, "Аватар обновлён", Snackbar.LENGTH_SHORT).show()
+                        }
+                        is AuthApi.ApiResult.Error ->
+                            Snackbar.make(profilePage, r.message, Snackbar.LENGTH_SHORT).show()
+                    }
+                }
+            }.start()
+        }
+
+        galleryBtn.setOnClickListener {
+            galleryPickerLauncher.launch("image/*")
+        }
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val name = nameInput.text?.toString()?.trim().orEmpty()
                 val avatarUrl = avatarUrlInput.text?.toString()?.trim().takeIf { !it.isNullOrBlank() }
                 if (name.isEmpty()) {
                     Snackbar.make(profilePage, "Введите имя", Snackbar.LENGTH_SHORT).show()
-                    return@setPositiveButton
+                    return@setOnClickListener
                 }
                 Thread {
                     val r = AuthApi.updateProfile(sessionManager.token, name, avatarUrl)
@@ -1570,15 +1658,16 @@ class MainActivity : AppCompatActivity() {
                                 sessionManager.userName = r.data.user.name
                                 sessionManager.userAvatarUrl = r.data.user.avatar_url
                                 updateProfileUI()
+                                dialog.dismiss()
                                 Snackbar.make(profilePage, "Профиль обновлён", Snackbar.LENGTH_SHORT).show()
                             }
-                            is AuthApi.ApiResult.Error -> Snackbar.make(profilePage, r.message, Snackbar.LENGTH_SHORT).show()
+                            is AuthApi.ApiResult.Error ->
+                                Snackbar.make(profilePage, r.message, Snackbar.LENGTH_SHORT).show()
                         }
                     }
                 }.start()
             }
-            .setNegativeButton("Отмена", null)
-            .create()
+        }
         dialog.show()
     }
 
