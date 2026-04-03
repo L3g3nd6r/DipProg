@@ -4,10 +4,12 @@ const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp-relay.brevo.com',
+  port: 587,
+  secure: false,
   auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD,
+    user: process.env.BREVO_SMTP_LOGIN,
+    pass: process.env.BREVO_SMTP_KEY,
   },
 });
 
@@ -19,7 +21,7 @@ function generateCode() {
 
 async function sendVerificationEmail(toEmail, code) {
   await transporter.sendMail({
-    from: `"DipProg" <${process.env.GMAIL_USER}>`,
+    from: `"DipProg" <${process.env.BREVO_SENDER_EMAIL || process.env.BREVO_SMTP_LOGIN}>`,
     to: toEmail,
     subject: 'Код подтверждения регистрации',
     html: `
