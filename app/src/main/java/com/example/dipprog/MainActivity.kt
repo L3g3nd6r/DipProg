@@ -218,11 +218,17 @@ class MainActivity : AppCompatActivity() {
             onMain = { r ->
                 when (r) {
                     is AuthApi.ApiResult.Success -> {
+                        val prevRole = sessionManager.userRole
                         sessionManager.userName = r.data.user.name
                         sessionManager.userEmail = r.data.user.email
                         sessionManager.userAvatarUrl = r.data.user.avatar_url
                         sessionManager.userRole = r.data.user.role ?: "customer"
                         updateOrdersTabVisibility()
+                        updateProfileUI()
+                        // Если роль изменилась (например, стал сборщиком) — перезагрузить заказы
+                        if (prevRole != sessionManager.userRole) {
+                            refreshOrdersCallback?.invoke()
+                        }
                     }
                     else -> {}
                 }
@@ -1040,35 +1046,48 @@ class MainActivity : AppCompatActivity() {
                 else -> {
                     errorText.visibility = View.GONE
                     submitBtn.isEnabled = false
-                    Thread {
-                        val result = if (isRegister) {
-                            AuthApi.register(email, password, name)
-                        } else {
-                            AuthApi.login(email, password)
-                        }
-                        runOnUiThread {
-                            submitBtn.isEnabled = true
-                            when (result) {
-                                is AuthApi.ApiResult.Success -> {
-                                    sessionManager.saveUser(
-                                        result.data.token,
-                                        result.data.user,
-                                        rememberSwitch.isChecked
-                                    )
-                                    hideAuthOverlay()
-                                    updateProfileUI()
-                                    refreshHomeBuildsCard?.invoke()
-                                    updateOrdersTabVisibility()
-                                    refreshOrdersCallback?.invoke()
-                                    bottomNavigationView.selectedItemId = R.id.navigation_home
-                                }
-                                is AuthApi.ApiResult.Error -> {
-                                    errorText.visibility = View.VISIBLE
-                                    errorText.text = result.message
+                    if (isRegister) {
+                        Thread {
+                            val result = AuthApi.register(email, password, name)
+                            runOnUiThread {
+                                submitBtn.isEnabled = true
+                                when (result) {
+                                    is AuthApi.ApiResult.Success ->
+                                        showVerifyEmailDialog(email, rememberSwitch.isChecked)
+                                    is AuthApi.ApiResult.Error -> {
+                                        errorText.visibility = View.VISIBLE
+                                        errorText.text = result.message
+                                    }
                                 }
                             }
-                        }
-                    }.start()
+                        }.start()
+                    } else {
+                        Thread {
+                            val result = AuthApi.login(email, password)
+                            runOnUiThread {
+                                submitBtn.isEnabled = true
+                                when (result) {
+                                    is AuthApi.ApiResult.Success -> {
+                                        sessionManager.saveUser(
+                                            result.data.token,
+                                            result.data.user,
+                                            rememberSwitch.isChecked
+                                        )
+                                        hideAuthOverlay()
+                                        updateProfileUI()
+                                        refreshHomeBuildsCard?.invoke()
+                                        updateOrdersTabVisibility()
+                                        refreshOrdersCallback?.invoke()
+                                        bottomNavigationView.selectedItemId = R.id.navigation_home
+                                    }
+                                    is AuthApi.ApiResult.Error -> {
+                                        errorText.visibility = View.VISIBLE
+                                        errorText.text = result.message
+                                    }
+                                }
+                            }
+                        }.start()
+                    }
                 }
             }
         }
@@ -1087,6 +1106,72 @@ class MainActivity : AppCompatActivity() {
         } else {
             hideAuthOverlay()
         }
+    }
+
+    private fun showVerifyEmailDialog(email: String, rememberMe: Boolean) {
+        val ctx = this
+        val inputLayout = com.google.android.material.textfield.TextInputLayout(ctx).apply {
+            hint = "6-значный код"
+            setPadding(0, 16, 0, 0)
+        }
+        val codeInput = TextInputEditText(ctx).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            maxLines = 1
+            filters = arrayOf(android.text.InputFilter.LengthFilter(6))
+        }
+        inputLayout.addView(codeInput)
+
+        val container = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(64, 16, 64, 0)
+        }
+        val hint = TextView(ctx).apply {
+            text = "Код отправлен на\n$email"
+            textAlignment = View.TEXT_ALIGNMENT_CENTER
+        }
+        container.addView(hint)
+        container.addView(inputLayout)
+
+        val dialog = MaterialAlertDialogBuilder(ctx)
+            .setTitle("Подтверждение email")
+            .setView(container)
+            .setPositiveButton("Подтвердить", null)
+            .setNegativeButton("Отмена", null)
+            .create()
+
+        dialog.setOnShowListener {
+            val btn = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            btn.setOnClickListener {
+                val code = codeInput.text?.toString()?.trim().orEmpty()
+                if (code.length != 6) {
+                    codeInput.error = "Введите 6-значный код"
+                    return@setOnClickListener
+                }
+                btn.isEnabled = false
+                Thread {
+                    val result = AuthApi.verifyEmail(email, code)
+                    runOnUiThread {
+                        btn.isEnabled = true
+                        when (result) {
+                            is AuthApi.ApiResult.Success -> {
+                                dialog.dismiss()
+                                sessionManager.saveUser(result.data.token, result.data.user, rememberMe)
+                                hideAuthOverlay()
+                                updateProfileUI()
+                                refreshHomeBuildsCard?.invoke()
+                                updateOrdersTabVisibility()
+                                refreshOrdersCallback?.invoke()
+                                bottomNavigationView.selectedItemId = R.id.navigation_home
+                            }
+                            is AuthApi.ApiResult.Error -> {
+                                codeInput.error = result.message
+                            }
+                        }
+                    }
+                }.start()
+            }
+        }
+        dialog.show()
     }
 
     private fun showAuthOverlay(registerMode: Boolean = false) {

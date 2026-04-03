@@ -2,6 +2,7 @@ package com.example.dipprog.auth
 
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
+import com.example.dipprog.api.ApiBaseUrl
 import com.example.dipprog.api.ApiHttp
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -9,13 +10,15 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 object AuthApi {
 
-    private val BASE_URL = com.example.dipprog.BuildConfig.BASE_URL
+    private val BASE_URL = ApiBaseUrl.value
     private val client get() = ApiHttp.client
     private val gson = Gson()
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
     data class RegisterBody(val email: String, val password: String, val name: String)
     data class LoginBody(val email: String, val password: String)
+    data class VerifyEmailBody(val email: String, val code: String)
+    data class RegisterPendingResponse(val message: String)
 
     data class User(
         val id: Int,
@@ -37,8 +40,22 @@ object AuthApi {
         @SerializedName("error") val error: String?
     )
 
-    fun register(email: String, password: String, name: String): ApiResult<AuthResponse> {
-        return post("$BASE_URL/api/auth/register", RegisterBody(email, password, name))
+    fun register(email: String, password: String, name: String): ApiResult<RegisterPendingResponse> {
+        val json = gson.toJson(RegisterBody(email, password, name))
+        val request = Request.Builder()
+            .url("$BASE_URL/api/auth/register")
+            .post(json.toRequestBody(jsonType))
+            .build()
+        return execute(request) { gson.fromJson(it, RegisterPendingResponse::class.java) }
+    }
+
+    fun verifyEmail(email: String, code: String): ApiResult<AuthResponse> {
+        val json = gson.toJson(VerifyEmailBody(email, code))
+        val request = Request.Builder()
+            .url("$BASE_URL/api/auth/verify-email")
+            .post(json.toRequestBody(jsonType))
+            .build()
+        return execute(request) { gson.fromJson(it, AuthResponse::class.java) }
     }
 
     fun login(email: String, password: String): ApiResult<AuthResponse> {
