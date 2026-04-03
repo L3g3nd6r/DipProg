@@ -1,5 +1,29 @@
 const express = require('express');
 
+/** Разбивает запрос на токены (буквы/цифры любого алфавита), игнорируя дефисы, пробелы и прочие знаки. */
+function searchTokensFromQuery(raw) {
+  const s = String(raw || '').normalize('NFKC');
+  const spaced = s.replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  if (!spaced) return [];
+  return spaced.split(/\s+/).filter(Boolean);
+}
+
+/** Экранирование для ILIKE: % и _ в вводе пользователя — буквально. */
+function escapeLikeToken(t) {
+  return t.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+/**
+ * «i3 12100» или «i3-12100» → %i3%12100% — найдёт «Core i3-12100».
+ * Токены идут по порядку в названии, между ними допустимы любые символы.
+ */
+function buildFlexibleSearchPattern(raw) {
+  const tokens = searchTokensFromQuery(raw);
+  if (tokens.length === 0) return null;
+  const body = tokens.map(escapeLikeToken).join('%');
+  return `%${body}%`;
+}
+
 function createRouter(pool) {
   const router = express.Router();
 
@@ -19,9 +43,10 @@ function createRouter(pool) {
         params.push(parseInt(category_id, 10));
         n++;
       }
-      if (search && search.trim()) {
-        query += ` AND (c.name ILIKE $${n} OR c.description ILIKE $${n})`;
-        params.push(`%${String(search).trim()}%`);
+      const searchPattern = search && String(search).trim() ? buildFlexibleSearchPattern(search) : null;
+      if (searchPattern) {
+        query += ` AND (c.name ILIKE $${n} ESCAPE '\\' OR c.description ILIKE $${n} ESCAPE '\\')`;
+        params.push(searchPattern);
         n++;
       }
       query += ` ORDER BY c.price ASC LIMIT $${n} OFFSET $${n + 1}`;
