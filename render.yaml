@@ -21,3 +21,7 @@ services:
         sync: false           # опционально, для ИИ-подборок
       - key: OPENAI_MODEL
         value: "gpt-4o-mini"
+      - key: RESEND_API_KEY
+        sync: false           # ключ с resend.com
+      - key: RESEND_FROM
+        value: ""             # после верификации домена: DipProg <noreply@ваш-домен.ru>

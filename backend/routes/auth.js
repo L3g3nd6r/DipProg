@@ -11,9 +11,20 @@ function generateCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
+/**
+ * Без верифицированного домена Resend разрешает слать только на тестовые адреса.
+ * Решение: Domains → добавить домен, DNS-записи, затем RESEND_FROM = "DipProg <noreply@ваш-домен.ru>"
+ */
 async function sendVerificationEmail(toEmail, code) {
-  await resend.emails.send({
-    from: 'DipProg <onboarding@resend.dev>',
+  const key = String(process.env.RESEND_API_KEY || '').trim();
+  if (!key) {
+    return { ok: false, message: 'На сервере не задан RESEND_API_KEY.' };
+  }
+
+  const from = String(process.env.RESEND_FROM || '').trim() || 'DipProg <onboarding@resend.dev>';
+
+  const { error } = await resend.emails.send({
+    from,
     to: toEmail,
     subject: 'Код подтверждения регистрации',
     html: `
@@ -26,6 +37,24 @@ async function sendVerificationEmail(toEmail, code) {
       </div>
     `,
   });
+
+  if (error) {
+    const raw = [error.message, error.name, JSON.stringify(error)].filter(Boolean).join(' ');
+    console.error('Resend emails.send error:', error);
+    const lower = raw.toLowerCase();
+    const sandboxHint =
+      lower.includes('only send') ||
+      lower.includes('testing') ||
+      lower.includes('verified email') ||
+      lower.includes('not allowed') ||
+      lower.includes('invalid') && lower.includes('to');
+    const msg = sandboxHint
+      ? 'Почта: без своего домена Resend шлёт код только на тестовый адрес. В Resend → Domains подключите домен, в Vercel задайте RESEND_FROM (например noreply@ваш-домен.ru) и перезапустите деплой.'
+      : 'Не удалось отправить письмо с кодом. Попробуйте позже или обратитесь к администратору.';
+    return { ok: false, message: msg };
+  }
+
+  return { ok: true };
 }
 
 /**
@@ -70,7 +99,11 @@ function createAuthRouter(pool, { jwtSecret, mapUserResponse, authMiddleware }) 
         [emailTrim, String(name).trim(), passwordHash, code, expiresAt]
       );
 
-      await sendVerificationEmail(emailTrim, code);
+      const sent = await sendVerificationEmail(emailTrim, code);
+      if (!sent.ok) {
+        await pool.query('DELETE FROM pending_registrations WHERE email = $1', [emailTrim]);
+        return res.status(502).json({ error: sent.message });
+      }
 
       res.status(200).json({ message: 'Код подтверждения отправлен на ваш email' });
     } catch (err) {
