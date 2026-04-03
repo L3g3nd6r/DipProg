@@ -102,6 +102,15 @@ function authMiddleware(req, res, next) {
 app.use(cors());
 app.use(express.json());
 
+// Временный диагностический маршрут — покажет, сколько assembler-email настроено
+app.get('/api/debug-env', (req, res) => {
+  res.json({
+    assembler_count: ASSEMBLER_EMAILS.length,
+    assembler_emails: ASSEMBLER_EMAILS,
+    node_env: process.env.NODE_ENV || '(not set)',
+  });
+});
+
 app.use('/api/categories', createCategoriesRouter(pool));
 app.use('/api/components', createComponentsRouter(pool));
 app.use('/api/builds', createBuildsRouter(pool, authMiddleware));
