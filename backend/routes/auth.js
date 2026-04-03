@@ -1,6 +1,32 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { Resend } = require('resend');
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+const CODE_TTL_MINUTES = 10;
+
+function generateCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+async function sendVerificationEmail(toEmail, code) {
+  await resend.emails.send({
+    from: 'DipProg <onboarding@resend.dev>',
+    to: toEmail,
+    subject: 'Код подтверждения регистрации',
+    html: `
+      <div style="font-family:sans-serif;max-width:400px;margin:0 auto">
+        <h2 style="color:#1a73e8">Подтверждение email</h2>
+        <p>Ваш код для завершения регистрации в <b>DipProg</b>:</p>
+        <div style="font-size:36px;font-weight:bold;letter-spacing:8px;color:#1a73e8;padding:16px 0">${code}</div>
+        <p style="color:#666">Код действителен ${CODE_TTL_MINUTES} минут.</p>
+        <p style="color:#999;font-size:12px">Если вы не регистрировались — просто проигнорируйте это письмо.</p>
+      </div>
+    `,
+  });
+}
 
 /**
  * @param {import('pg').Pool} pool
@@ -16,47 +42,94 @@ function createAuthRouter(pool, { jwtSecret, mapUserResponse, authMiddleware }) 
         return res.status(400).json({ error: 'Укажите email, пароль и имя' });
       }
       const emailTrim = String(email).trim().toLowerCase();
-      if (emailTrim.length < 3) {
+      if (emailTrim.length < 3 || !emailTrim.includes('@')) {
         return res.status(400).json({ error: 'Некорректный email' });
       }
       if (String(password).length < 6) {
         return res.status(400).json({ error: 'Пароль не менее 6 символов' });
       }
 
+      const existing = await pool.query('SELECT id FROM users WHERE email = $1', [emailTrim]);
+      if (existing.rows.length > 0) {
+        return res.status(409).json({ error: 'Пользователь с таким email уже зарегистрирован' });
+      }
+
       const passwordHash = await bcrypt.hash(password, 10);
+      const code = generateCode();
+      const expiresAt = new Date(Date.now() + CODE_TTL_MINUTES * 60 * 1000);
+
+      await pool.query(
+        `INSERT INTO pending_registrations (email, name, password_hash, code, expires_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (email) DO UPDATE
+           SET name = EXCLUDED.name,
+               password_hash = EXCLUDED.password_hash,
+               code = EXCLUDED.code,
+               expires_at = EXCLUDED.expires_at,
+               created_at = CURRENT_TIMESTAMP`,
+        [emailTrim, String(name).trim(), passwordHash, code, expiresAt]
+      );
+
+      await sendVerificationEmail(emailTrim, code);
+
+      res.status(200).json({ message: 'Код подтверждения отправлен на ваш email' });
+    } catch (err) {
+      if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
+        return res.status(500).json({ error: 'Не удаётся подключиться к БД' });
+      }
+      console.error('Register error:', err);
+      res.status(500).json({ error: 'Ошибка регистрации. Попробуйте позже.' });
+    }
+  });
+
+  router.post('/verify-email', async (req, res) => {
+    try {
+      const { email, code } = req.body;
+      if (!email || !code) {
+        return res.status(400).json({ error: 'Укажите email и код' });
+      }
+      const emailTrim = String(email).trim().toLowerCase();
+      const codeTrim = String(code).trim();
+
       const result = await pool.query(
+        'SELECT * FROM pending_registrations WHERE email = $1',
+        [emailTrim]
+      );
+      if (result.rows.length === 0) {
+        return res.status(400).json({ error: 'Запрос на регистрацию не найден. Начните заново.' });
+      }
+      const pending = result.rows[0];
+
+      if (new Date() > new Date(pending.expires_at)) {
+        await pool.query('DELETE FROM pending_registrations WHERE email = $1', [emailTrim]);
+        return res.status(400).json({ error: 'Код истёк. Зарегистрируйтесь заново.' });
+      }
+
+      if (pending.code !== codeTrim) {
+        return res.status(400).json({ error: 'Неверный код подтверждения' });
+      }
+
+      await pool.query('DELETE FROM pending_registrations WHERE email = $1', [emailTrim]);
+
+      const userResult = await pool.query(
         `INSERT INTO users (email, password_hash, name)
          VALUES ($1, $2, $3)
          RETURNING id, email, name, avatar_url, created_at`,
-        [emailTrim, passwordHash, String(name).trim()]
+        [emailTrim, pending.password_hash, pending.name]
       );
-      const user = result.rows[0];
+      const user = userResult.rows[0];
       const token = jwt.sign(
         { userId: user.id, email: user.email },
         jwtSecret,
         { expiresIn: '7d' }
       );
-      res.status(201).json({
-        token,
-        user: mapUserResponse(user),
-      });
+      res.status(201).json({ token, user: mapUserResponse(user) });
     } catch (err) {
       if (err.code === '23505') {
         return res.status(409).json({ error: 'Пользователь с таким email уже зарегистрирован' });
       }
-      if (err.code === '28P01') {
-        console.error('PostgreSQL: неверный логин или пароль. Проверьте DATABASE_URL в .env');
-        return res.status(500).json({ error: 'Ошибка подключения к БД. Проверьте логин и пароль в .env' });
-      }
-      if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
-        return res.status(500).json({ error: 'Не удаётся подключиться к БД. Запущен ли PostgreSQL?' });
-      }
-      if (err.code === '42P01') {
-        console.error('Таблица users не найдена. Выполните schema.sql в базе dipproj (DBeaver или: npm run init-db)');
-        return res.status(500).json({ error: 'Таблица users не создана. Выполните backend/schema.sql в базе dipproj.' });
-      }
-      console.error('Register error:', err);
-      res.status(500).json({ error: 'Ошибка регистрации' });
+      console.error('Verify email error:', err);
+      res.status(500).json({ error: 'Ошибка подтверждения. Попробуйте позже.' });
     }
   });
 
@@ -84,10 +157,7 @@ function createAuthRouter(pool, { jwtSecret, mapUserResponse, authMiddleware }) 
         jwtSecret,
         { expiresIn: '7d' }
       );
-      res.json({
-        token,
-        user: mapUserResponse(user),
-      });
+      res.json({ token, user: mapUserResponse(user) });
     } catch (err) {
       console.error('Login error:', err);
       res.status(500).json({ error: 'Ошибка входа' });
@@ -110,9 +180,7 @@ function createAuthRouter(pool, { jwtSecret, mapUserResponse, authMiddleware }) 
         return res.status(401).json({ error: 'Пользователь не найден' });
       }
       const user = result.rows[0];
-      res.json({
-        user: mapUserResponse(user, true),
-      });
+      res.json({ user: mapUserResponse(user, true) });
     } catch (err) {
       if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
         return res.status(401).json({ error: 'Требуется авторизация' });

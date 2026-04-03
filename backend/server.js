@@ -83,6 +83,18 @@ async function ensureRuntimeSchema() {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_order_notifications_user ON order_notifications(user_id)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pending_registrations (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255) NOT NULL UNIQUE,
+      name VARCHAR(255) NOT NULL,
+      password_hash TEXT NOT NULL,
+      code VARCHAR(6) NOT NULL,
+      expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 }
 
 function authMiddleware(req, res, next) {
