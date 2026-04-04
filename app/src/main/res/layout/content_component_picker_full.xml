@@ -21,24 +21,28 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/componentPickerBack"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Назад" />
-
-        <View
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1" />
+            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:contentDescription="@string/component_picker_back_cd"
+            app:backgroundTint="?attr/colorPrimaryContainer"
+            app:icon="@drawable/ic_chevron_left"
+            app:iconTint="?attr/colorPrimary" />
 
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical|end"
-            android:paddingEnd="12dp"
+            android:layout_weight="1"
+            android:gravity="center"
             android:text="Каталог"
             android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
             android:textColor="?attr/colorOnSurface" />
+
+        <!-- Баланс ширины слева (как у кнопки назад), чтобы «Каталог» оставался по центру -->
+        <View
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:visibility="invisible" />
     </LinearLayout>
 
     <!-- Поиск -->

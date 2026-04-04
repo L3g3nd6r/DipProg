@@ -5,7 +5,10 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="20dp">
+    android:paddingStart="20dp"
+    android:paddingEnd="20dp"
+    android:paddingTop="20dp"
+    android:paddingBottom="20dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -16,10 +19,13 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/buildDetailBack"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Назад" />
+            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:contentDescription="@string/build_detail_back_cd"
+            app:backgroundTint="?attr/colorPrimaryContainer"
+            app:icon="@drawable/ic_chevron_left"
+            app:iconTint="?attr/colorPrimary" />
 
         <TextView
             android:id="@+id/buildDetailName"
@@ -27,21 +33,27 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:paddingStart="8dp"
+            android:paddingEnd="4dp"
             android:breakStrategy="simple"
             android:ellipsize="end"
             android:gravity="center_vertical"
             android:hyphenationFrequency="none"
             android:maxLines="2"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
             android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
             android:textColor="?attr/colorOnSurface" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/buildDetailDelete"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Удалить"
-            android:textColor="?attr/colorError" />
+            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:contentDescription="@string/build_detail_delete_cd"
+            app:backgroundTint="?attr/colorErrorContainer"
+            app:icon="@drawable/ic_delete"
+            app:iconTint="?attr/colorError" />
 
     </LinearLayout>
 
@@ -148,32 +160,45 @@
         android:layout_height="0dp"
         android:layout_weight="1" />
 
-    <TextView
-        android:id="@+id/buildDetailTotal"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:textSize="16sp"
-        android:textStyle="bold" />
+        android:layout_marginEnd="72dp"
+        android:orientation="vertical">
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/buildDetailAddComponents"
-        style="@style/Widget.Material3.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Добавить комплектующие"
-        android:paddingTop="14dp"
-        android:paddingBottom="14dp" />
+        <TextView
+            android:id="@+id/buildDetailTotal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="15sp"
+            android:textStyle="bold" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/buildDetailAddBuildToCart"
-        style="@style/Widget.Material3.Button"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Добавить сборку в корзину"
-        android:paddingTop="14dp"
-        android:paddingBottom="14dp" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buildDetailAddComponents"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:minHeight="40dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:text="Добавить комплектующие"
+            android:textAppearance="@style/TextAppearance.Material3.LabelMedium"
+            app:cornerRadius="10dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buildDetailAddBuildToCart"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:minHeight="40dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:text="Добавить сборку в корзину"
+            android:textAppearance="@style/TextAppearance.Material3.LabelMedium"
+            app:cornerRadius="10dp" />
+    </LinearLayout>
 
 </LinearLayout>

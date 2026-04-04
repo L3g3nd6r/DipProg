@@ -215,6 +215,13 @@ object BuildsApi {
         return getOne(req) { gson.fromJson(it, Build::class.java) }
     }
 
+    fun renameBuild(token: String?, buildId: Int, newName: String): ApiResult<Build> {
+        if (token.isNullOrBlank()) return ApiResult.Error("Требуется авторизация")
+        val body = gson.toJson(mapOf("name" to newName))
+        val req = Request.Builder().url("$BASE_URL/api/builds/$buildId").put(body.toRequestBody(jsonType)).auth(token).build()
+        return getOne(req) { gson.fromJson(it, Build::class.java) }
+    }
+
     fun deleteBuild(token: String?, buildId: Int): ApiResult<Unit> {
         if (token.isNullOrBlank()) return ApiResult.Error("Требуется авторизация")
         val req = Request.Builder().url("$BASE_URL/api/builds/$buildId").delete().auth(token).build()

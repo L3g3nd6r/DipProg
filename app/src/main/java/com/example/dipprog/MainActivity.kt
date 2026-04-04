@@ -9,6 +9,7 @@ import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
 import android.os.Bundle
 import android.util.Log
+import android.util.TypedValue
 import android.view.HapticFeedbackConstants
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -47,9 +48,11 @@ import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -63,6 +66,7 @@ import android.text.TextUtils
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.ImageButton
 import android.widget.ImageView
 import coil.load
@@ -96,6 +100,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
     private var loadCartCallback: (() -> Unit)? = null
+    private var openBuildCartFn: (() -> Unit)? = null
+    private var loadBuildDetailFn: ((Int) -> Unit)? = null
+
+    private enum class BuildScreenBehindCart { LIST, DETAIL, PICKER }
+    private var screenBehindCart: BuildScreenBehindCart? = null
     private var refreshOrdersCallback: (() -> Unit)? = null
     private var lastOrderNotificationId: Int = -1
     private var lastOrderNotificationCheckAt: Long = 0L
@@ -206,8 +215,8 @@ class MainActivity : AppCompatActivity() {
 
 
         setupBottomNavigation()
-        setupBuildPageTabs()
         setupBuildsAndCart()
+        setupBuildPageCartUi()
         setupOrdersPage()
         setupHomePage()
         setupGuidePage()
@@ -695,6 +704,51 @@ class MainActivity : AppCompatActivity() {
         createBtn.setOnClickListener { showCreateBuildDialogAndCreate() }
         createBtnHeader.setOnClickListener { showCreateBuildDialogAndCreate() }
 
+        fun showRenameBuildDialog() {
+            val bid = currentBuildId ?: return
+            val currentName = lastBuildDetail?.name ?: buildDetailName.text.toString()
+            val container = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding(48, 24, 48, 8)
+            }
+            val input = TextInputEditText(this).apply {
+                setText(currentName)
+                setSingleLine(true)
+                selectAll()
+            }
+            container.addView(input)
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Переименовать сборку")
+                .setView(container)
+                .setPositiveButton("Сохранить") { _, _ ->
+                    val newName = input.text?.toString()?.trim().orEmpty()
+                    if (newName.isEmpty()) {
+                        Snackbar.make(buildPage, "Введите название", Snackbar.LENGTH_SHORT).show()
+                        return@setPositiveButton
+                    }
+                    Thread {
+                        val r = BuildsApi.renameBuild(sessionManager.token, bid, newName)
+                        runOnUiThread {
+                            when (r) {
+                                is BuildsApi.ApiResult.Success -> {
+                                    buildDetailName.text = r.data.name
+                                    lastBuildDetail = lastBuildDetail?.copy(name = r.data.name)
+                                    loadBuildsList()
+                                    refreshHomeBuildsCard?.invoke()
+                                    Snackbar.make(buildPage, "Сборка переименована", Snackbar.LENGTH_SHORT).show()
+                                }
+                                is BuildsApi.ApiResult.Error ->
+                                    Snackbar.make(buildPage, r.message, Snackbar.LENGTH_SHORT).show()
+                            }
+                        }
+                    }.start()
+                }
+                .setNegativeButton("Отмена", null)
+                .show()
+        }
+
+        buildDetailName.setOnClickListener { showRenameBuildDialog() }
+
         val buildDetailDelete = buildPage.findViewById<MaterialButton>(R.id.buildDetailDelete)
         buildDetailDelete.setOnClickListener {
             val bid = currentBuildId ?: return@setOnClickListener
@@ -757,30 +811,12 @@ class MainActivity : AppCompatActivity() {
                 .setPositiveButton("Копировать") { _, _ ->
                     Thread {
                         val stem = stemBuildNameForCopy(d.name)
-                        var newId: Int? = null
-                        var n = 2
-                        while (n < 100) {
-                            val candidate = getString(R.string.duplicate_build_numbered, stem, n)
-                            when (val created = BuildsApi.createBuild(sessionManager.token, candidate)) {
-                                is BuildsApi.ApiResult.Success -> {
-                                    newId = created.data.id
-                                    break
-                                }
-                                is BuildsApi.ApiResult.Error -> {
-                                    val clash = created.message.contains("уже существует", ignoreCase = true)
-                                    if (!clash) {
-                                        runOnUiThread { Snackbar.make(buildPage, created.message, Snackbar.LENGTH_LONG).show() }
-                                        return@Thread
-                                    }
-                                    n++
-                                }
-                            }
-                        }
-                        val bid = newId
-                        if (bid == null) {
-                            runOnUiThread { Snackbar.make(buildPage, "Не удалось подобрать уникальное имя копии", Snackbar.LENGTH_LONG).show() }
+                        val created = BuildsApi.createBuild(sessionManager.token, stem)
+                        if (created is BuildsApi.ApiResult.Error) {
+                            runOnUiThread { Snackbar.make(buildPage, created.message, Snackbar.LENGTH_LONG).show() }
                             return@Thread
                         }
+                        val bid = (created as BuildsApi.ApiResult.Success).data.id
                         var err: String? = null
                         for (c in d.components ?: emptyList()) {
                             when (val addR = BuildsApi.addToBuild(sessionManager.token, bid, c.component_id, c.quantity)) {
@@ -1017,13 +1053,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         goToShoppingBtn.setOnClickListener {
-            val tabs = buildPage.findViewById<TabLayout>(R.id.buildMainTabs)
-            tabs.getTabAt(0)?.select()
+            buildPage.findViewById<View>(R.id.buildCartInclude).visibility = View.GONE
+            buildPage.findViewById<FloatingActionButton>(R.id.buildCartFab).visibility = View.VISIBLE
+            screenBehindCart = null
             openBuildPageWithCategory?.invoke(null)
         }
 
         refreshBuildList = loadBuildsList
         loadCartCallback = loadCart
+        loadBuildDetailFn = loadBuildDetail
 
         buildPage.findViewById<View>(R.id.buildPageContentContainer).post {
             loadBuildsList()
@@ -1137,43 +1175,41 @@ class MainActivity : AppCompatActivity() {
 
     private fun showVerifyEmailDialog(email: String, rememberMe: Boolean) {
         val ctx = this
-        val inputLayout = com.google.android.material.textfield.TextInputLayout(ctx).apply {
-            hint = "6-значный код"
-            setPadding(0, 16, 0, 0)
-        }
-        val codeInput = TextInputEditText(ctx).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            maxLines = 1
-            filters = arrayOf(android.text.InputFilter.LengthFilter(6))
-        }
-        inputLayout.addView(codeInput)
+        val view = LayoutInflater.from(ctx).inflate(R.layout.dialog_verify_email, null)
+        val codeLayout = view.findViewById<TextInputLayout>(R.id.verifyEmailCodeLayout)
+        val codeInput = view.findViewById<TextInputEditText>(R.id.verifyEmailCodeInput)
+        view.findViewById<TextView>(R.id.verifyEmailAddressText).text = email
 
-        val container = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(64, 16, 64, 0)
-        }
-        val hint = TextView(ctx).apply {
-            text = "Код отправлен на\n$email"
-            textAlignment = View.TEXT_ALIGNMENT_CENTER
-        }
-        container.addView(hint)
-        container.addView(inputLayout)
+        codeInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                codeLayout.error = null
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
 
         val dialog = MaterialAlertDialogBuilder(ctx)
-            .setTitle("Подтверждение email")
-            .setView(container)
-            .setPositiveButton("Подтвердить", null)
-            .setNegativeButton("Отмена", null)
+            .setView(view)
+            .setPositiveButton(R.string.verify_confirm, null)
+            .setNegativeButton(R.string.verify_cancel, null)
             .create()
 
         dialog.setOnShowListener {
+            val dm = resources.displayMetrics
+            val marginOuter = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, dm).toInt()
+            val maxW = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 440f, dm).toInt()
+            val minW = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 300f, dm).toInt()
+            val w = (dm.widthPixels - marginOuter * 2).coerceIn(minW, maxW)
+            dialog.window?.setLayout(w, FrameLayout.LayoutParams.WRAP_CONTENT)
+
             val btn = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-            btn.setOnClickListener {
+            fun trySubmitVerifyCode() {
                 val code = codeInput.text?.toString()?.trim().orEmpty()
                 if (code.length != 6) {
-                    codeInput.error = "Введите 6-значный код"
-                    return@setOnClickListener
+                    codeLayout.error = getString(R.string.verify_email_code_error)
+                    return
                 }
+                codeLayout.error = null
                 btn.isEnabled = false
                 Thread {
                     val result = AuthApi.verifyEmail(email, code)
@@ -1191,11 +1227,23 @@ class MainActivity : AppCompatActivity() {
                                 bottomNavigationView.selectedItemId = R.id.navigation_home
                             }
                             is AuthApi.ApiResult.Error -> {
-                                codeInput.error = result.message
+                                codeLayout.error = result.message
                             }
                         }
                     }
                 }.start()
+            }
+            btn.setOnClickListener { trySubmitVerifyCode() }
+            codeInput.setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_DONE) {
+                    trySubmitVerifyCode()
+                    true
+                } else false
+            }
+            codeInput.post {
+                codeInput.requestFocus()
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.showSoftInput(codeInput, InputMethodManager.SHOW_IMPLICIT)
             }
         }
         dialog.show()
@@ -1349,10 +1397,7 @@ class MainActivity : AppCompatActivity() {
             },
             NavItem(R.drawable.ic_cart, getString(R.string.profile_nav_cart), getString(R.string.profile_nav_cart_sub)) {
                 showPageById(R.id.navigation_build)
-                buildPage.post {
-                    val tabs = buildPage.findViewById<TabLayout>(R.id.buildMainTabs)
-                    tabs.getTabAt(1)?.select()
-                }
+                buildPage.post { openBuildCartFn?.invoke() }
             },
             NavItem(R.drawable.ic_ai, getString(R.string.profile_nav_ai), getString(R.string.profile_nav_ai_sub)) {
                 showPageById(R.id.navigation_ai_chat)
@@ -1691,52 +1736,60 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupBuildPageTabs() {
-        val tabs = buildPage.findViewById<TabLayout>(R.id.buildMainTabs)
+    private fun setupBuildPageCartUi() {
         val buildListInclude = buildPage.findViewById<View>(R.id.buildListInclude)
         val buildDetailInclude = buildPage.findViewById<View>(R.id.buildDetailInclude)
         val componentPickerInclude = buildPage.findViewById<View>(R.id.componentPickerInclude)
         val cartInclude = buildPage.findViewById<View>(R.id.buildCartInclude)
+        val cartFab = buildPage.findViewById<FloatingActionButton>(R.id.buildCartFab)
+        val cartCloseButton = buildPage.findViewById<MaterialButton>(R.id.cartCloseButton)
 
-        if (tabs.tabCount == 0) {
-            tabs.addTab(tabs.newTab().setText("Сборка"), true)
-            tabs.addTab(tabs.newTab().setText("Корзина"), false)
-        }
-
-        fun showBuildArea() {
+        fun closeCartOverlay() {
             cartInclude.visibility = View.GONE
-            // Если внутри сборки уже открыт детальный экран или пикер — не ломаем состояние
-            if (componentPickerInclude.visibility == View.VISIBLE) return
-            if (buildDetailInclude.visibility == View.VISIBLE) return
-            buildListInclude.visibility = View.VISIBLE
+            cartFab.visibility = View.VISIBLE
+            when (screenBehindCart) {
+                BuildScreenBehindCart.PICKER -> {
+                    componentPickerInclude.visibility = View.VISIBLE
+                    buildListInclude.visibility = View.GONE
+                    buildDetailInclude.visibility = View.GONE
+                }
+                BuildScreenBehindCart.DETAIL -> {
+                    buildDetailInclude.visibility = View.VISIBLE
+                    buildListInclude.visibility = View.GONE
+                    val bid = currentBuildId
+                    if (bid != null) loadBuildDetailFn?.invoke(bid)
+                }
+                else -> {
+                    buildListInclude.visibility = View.VISIBLE
+                    buildDetailInclude.visibility = View.GONE
+                }
+            }
+            screenBehindCart = null
         }
 
         fun showCartArea() {
+            screenBehindCart = when {
+                componentPickerInclude.visibility == View.VISIBLE -> BuildScreenBehindCart.PICKER
+                buildDetailInclude.visibility == View.VISIBLE -> BuildScreenBehindCart.DETAIL
+                else -> BuildScreenBehindCart.LIST
+            }
             buildListInclude.visibility = View.GONE
             buildDetailInclude.visibility = View.GONE
             componentPickerInclude.visibility = View.GONE
             cartInclude.visibility = View.VISIBLE
+            cartFab.visibility = View.GONE
             loadCartCallback?.invoke()
         }
 
-        // Дефолт
+        openBuildCartFn = { showCartArea() }
+
+        cartFab.setOnClickListener { showCartArea() }
+        cartCloseButton.setOnClickListener { closeCartOverlay() }
+
         buildDetailInclude.visibility = View.GONE
         cartInclude.visibility = View.GONE
         buildListInclude.visibility = View.VISIBLE
-
-        tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
-            override fun onTabSelected(tab: TabLayout.Tab?) {
-                when (tab?.position ?: 0) {
-                    1 -> showCartArea()
-                    else -> showBuildArea()
-                }
-            }
-
-            override fun onTabUnselected(tab: TabLayout.Tab?) {}
-            override fun onTabReselected(tab: TabLayout.Tab?) {
-                onTabSelected(tab)
-            }
-        })
+        cartFab.visibility = View.VISIBLE
     }
 
     private fun shareBuildText(detail: BuildsApi.BuildDetail) {

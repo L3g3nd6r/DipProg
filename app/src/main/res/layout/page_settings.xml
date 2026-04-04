@@ -135,7 +135,7 @@
                 android:layout_height="wrap_content"
                 android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                 android:textColor="?attr/colorOnSurfaceVariant"
-                android:text="Версия: 1.0.0" />
+                android:text="Версия: 0.1.2" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 </LinearLayout>
