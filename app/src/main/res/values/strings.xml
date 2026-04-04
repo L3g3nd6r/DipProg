@@ -118,6 +118,7 @@
     <string name="checkout_address_hint">Адрес доставки</string>
     <string name="checkout_comment_hint">Комментарий (необязательно)</string>
     <string name="profile_edit">Редактировать профиль</string>
+    <string name="profile_change_name_cd">Изменить имя</string>
     <string name="profile_logout">Выйти из аккаунта</string>
     <string name="profile_copy_email">Скопировать email</string>
     <string name="profile_avatar_cd">Фото профиля</string>

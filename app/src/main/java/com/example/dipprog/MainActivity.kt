@@ -385,6 +385,7 @@ class MainActivity : AppCompatActivity() {
             currentBuildId = build.id
             buildListInclude.visibility = View.GONE
             buildDetailInclude.visibility = View.VISIBLE
+            syncCartFabBottomMargin()
             loadBuildDetail(build.id)
         }
         val buildComponentsAdapter = BuildComponentsAdapter(
@@ -489,8 +490,12 @@ class MainActivity : AppCompatActivity() {
                             } else {
                                 buildDetailMissingCard.visibility = View.GONE
                             }
+                            syncCartFabBottomMargin()
                         }
-                        is BuildsApi.ApiResult.Error -> Snackbar.make(buildPage, r.message, Snackbar.LENGTH_SHORT).show()
+                        is BuildsApi.ApiResult.Error -> {
+                            Snackbar.make(buildPage, r.message, Snackbar.LENGTH_SHORT).show()
+                            syncCartFabBottomMargin()
+                        }
                     }
                 }
                 val compat = BuildsApi.buildCompatibility(sessionManager.token, buildId)
@@ -562,6 +567,7 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         buildDetailCompatibilityCard.visibility = View.GONE
                     }
+                    syncCartFabBottomMargin()
                 }
             }.start()
         }
@@ -690,6 +696,7 @@ class MainActivity : AppCompatActivity() {
                                     loadBuildDetail(r.data.id)
                                     loadBuildsList()
                                     refreshHomeBuildsCard?.invoke()
+                                    syncCartFabBottomMargin()
                                 }
                                 is BuildsApi.ApiResult.Error -> Snackbar.make(buildPage, r.message, Snackbar.LENGTH_SHORT).show()
                             }
@@ -768,6 +775,7 @@ class MainActivity : AppCompatActivity() {
                                     loadBuildsList()
                                     refreshHomeBuildsCard?.invoke()
                                     Snackbar.make(buildPage, "Сборка удалена", Snackbar.LENGTH_SHORT).show()
+                                    syncCartFabBottomMargin()
                                 }
                                 is BuildsApi.ApiResult.Error -> Snackbar.make(buildPage, r.message, Snackbar.LENGTH_SHORT).show()
                             }
@@ -784,6 +792,7 @@ class MainActivity : AppCompatActivity() {
             currentBuildId = null
             lastBuildDetail = null
             loadBuildsList()
+            syncCartFabBottomMargin()
         }
 
         buildDetailShare.setOnClickListener {
@@ -836,6 +845,7 @@ class MainActivity : AppCompatActivity() {
                             loadBuildDetail(bid)
                             loadBuildsList()
                             refreshHomeBuildsCard?.invoke()
+                            syncCartFabBottomMargin()
                         }
                     }.start()
                 }
@@ -952,6 +962,7 @@ class MainActivity : AppCompatActivity() {
             buildDetailInclude.visibility = View.GONE
             buildListInclude.visibility = View.GONE
             componentPickerInclude.visibility = View.VISIBLE
+            syncCartFabBottomMargin()
             Thread {
                 val catRes = BuildsApi.categories(sessionManager.token)
                 runOnUiThread {
@@ -1013,6 +1024,7 @@ class MainActivity : AppCompatActivity() {
                             loadBuildsList()
                             refreshHomeBuildsCard?.invoke()
                             showPageById(R.id.navigation_build)
+                            syncCartFabBottomMargin()
                         }
                         is BuildsApi.ApiResult.Error -> Snackbar.make(buildPage, r.message, Snackbar.LENGTH_LONG).show()
                     }
@@ -1030,6 +1042,7 @@ class MainActivity : AppCompatActivity() {
                 buildListInclude.visibility = View.VISIBLE
                 buildDetailInclude.visibility = View.GONE
             }
+            syncCartFabBottomMargin()
         }
 
         buildDetailAddBtn.setOnClickListener {
@@ -1057,6 +1070,7 @@ class MainActivity : AppCompatActivity() {
             buildPage.findViewById<FloatingActionButton>(R.id.buildCartFab).visibility = View.VISIBLE
             screenBehindCart = null
             openBuildPageWithCategory?.invoke(null)
+            syncCartFabBottomMargin()
         }
 
         refreshBuildList = loadBuildsList
@@ -1372,9 +1386,11 @@ class MainActivity : AppCompatActivity() {
                 .setNegativeButton("Отмена", null)
                 .show()
         }
-        profilePage.findViewById<MaterialButton>(R.id.profileEditButton).setOnClickListener {
-            showEditProfileDialog()
+        val openEditProfile = {
+            if (sessionManager.isLoggedIn) showEditProfileDialog()
         }
+        profilePage.findViewById<MaterialButton>(R.id.profileEditButton).setOnClickListener { openEditProfile() }
+        profilePage.findViewById<TextView>(R.id.profileUserName).setOnClickListener { openEditProfile() }
         profilePage.findViewById<ImageButton>(R.id.profileCopyEmailButton).setOnClickListener {
             val email = sessionManager.userEmail?.trim().orEmpty()
             if (email.isEmpty()) return@setOnClickListener
@@ -1688,6 +1704,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         dialog.setOnShowListener {
+            nameInput.requestFocus()
+            nameInput.setSelection(nameInput.text?.length ?: 0)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val name = nameInput.text?.toString()?.trim().orEmpty()
                 val avatarUrl = avatarUrlInput.text?.toString()?.trim().takeIf { !it.isNullOrBlank() }
@@ -1736,6 +1754,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** FAB корзины: выше на экране одной сборки, у списка сборок — у нижнего края. */
+    private fun syncCartFabBottomMargin() {
+        val fab = buildPage.findViewById<FloatingActionButton>(R.id.buildCartFab) ?: return
+        val detail = buildPage.findViewById<View>(R.id.buildDetailInclude)
+        val lp = fab.layoutParams as FrameLayout.LayoutParams
+        val dp = if (detail.visibility == View.VISIBLE) 150f else 16f
+        lp.bottomMargin = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics).toInt()
+        fab.layoutParams = lp
+    }
+
     private fun setupBuildPageCartUi() {
         val buildListInclude = buildPage.findViewById<View>(R.id.buildListInclude)
         val buildDetailInclude = buildPage.findViewById<View>(R.id.buildDetailInclude)
@@ -1765,6 +1793,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             screenBehindCart = null
+            syncCartFabBottomMargin()
         }
 
         fun showCartArea() {
@@ -1790,6 +1819,7 @@ class MainActivity : AppCompatActivity() {
         cartInclude.visibility = View.GONE
         buildListInclude.visibility = View.VISIBLE
         cartFab.visibility = View.VISIBLE
+        syncCartFabBottomMargin()
     }
 
     private fun shareBuildText(detail: BuildsApi.BuildDetail) {
