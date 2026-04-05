@@ -4,8 +4,16 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import androidx.core.content.PermissionChecker
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.content.SharedPreferences
@@ -26,7 +34,6 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
-import androidx.core.content.ContextCompat
 import androidx.core.view.MenuItemCompat
 import com.example.dipprog.R
 import com.example.dipprog.api.BuildsAdapter
@@ -116,6 +123,35 @@ class MainActivity : AppCompatActivity() {
     private var lastOrderNotificationId: Int = -1
     private var lastOrderNotificationCheckAt: Long = 0L
 
+    /** true = запрос разрешения инициирован из переключателя в Настройках (иначе — из онбординга при входе) */
+    private var notifPermRequestFromSettings = false
+
+    /** Launcher для разрешения POST_NOTIFICATIONS */
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (notifPermRequestFromSettings) {
+                // Запрос из настроек: синхронизируем переключатель и сохраняем
+                saveNotifications(granted)
+                notificationsSwitch.setOnCheckedChangeListener(null)
+                notificationsSwitch.isChecked = granted
+                setupNotificationSwitchListener()
+                if (!granted) {
+                    Snackbar.make(
+                        settingsPage,
+                        "Разрешение отклонено. Разрешите уведомления в системных настройках приложения.",
+                        Snackbar.LENGTH_LONG,
+                    ).show()
+                }
+            } else {
+                // Запрос при входе в аккаунт: сохраняем результат и показываем подсказку
+                saveNotifications(granted)
+                notificationsSwitch.setOnCheckedChangeListener(null)
+                notificationsSwitch.isChecked = granted
+                setupNotificationSwitchListener()
+                showNotifOnboardingHint()
+            }
+        }
+
     private var onGalleryAvatarPicked: ((String) -> Unit)? = null
     private val galleryPickerLauncher =
         registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
@@ -152,6 +188,9 @@ class MainActivity : AppCompatActivity() {
     private val NOTIFICATIONS_KEY = "notifications_enabled"
     private val HAPTIC_KEY = "haptic_feedback_enabled"
     private val KEEP_SCREEN_ON_KEY = "keep_screen_on"
+    private val PUSH_NOTIF_ASKED_KEY = "push_notif_asked_on_login"
+    private val NOTIF_CHANNEL_ID = "order_notifications"
+    private val NOTIF_CHANNEL_NAME = "Уведомления о заказах"
 
     // --- Добавленные поля для чата ---
     private lateinit var messagesContainer: LinearLayout
@@ -239,6 +278,7 @@ class MainActivity : AppCompatActivity() {
         setupProfileListeners()
         setupSettingsListeners()
         applyKeepScreenOnSetting()
+        createNotificationChannel()
         setupChatListeners()
         setupAuthScreen()
         restoreChatFromState(savedInstanceState)
@@ -1169,6 +1209,7 @@ class MainActivity : AppCompatActivity() {
                                             rememberSwitch.isChecked
                                         )
                                         hideAuthOverlay()
+                                        onAfterLogin()
                                         updateProfileUI()
                                         refreshHomeBuildsCard?.invoke()
                                         updateOrdersTabVisibility()
@@ -1250,6 +1291,7 @@ class MainActivity : AppCompatActivity() {
                                 dialog.dismiss()
                                 sessionManager.saveUser(result.data.token, result.data.user, rememberMe)
                                 hideAuthOverlay()
+                                onAfterLogin()
                                 updateProfileUI()
                                 refreshHomeBuildsCard?.invoke()
                                 updateOrdersTabVisibility()
@@ -1348,7 +1390,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val notificationsEnabled = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(NOTIFICATIONS_KEY, true)
+            .getBoolean(NOTIFICATIONS_KEY, false)
         if (!notificationsEnabled) {
             clearOrdersTabBadge()
             return
@@ -1365,16 +1407,18 @@ class MainActivity : AppCompatActivity() {
                     val unread = list.count { !it.is_read }
                     updateOrdersTabBadge(unread)
                     val newestUnread = list.firstOrNull { !it.is_read }
-                    if (newestUnread != null &&
-                        newestUnread.id != lastOrderNotificationId &&
-                        currentPageId != R.id.navigation_orders
-                    ) {
+                    if (newestUnread != null && newestUnread.id != lastOrderNotificationId) {
                         lastOrderNotificationId = newestUnread.id
-                        Snackbar.make(
-                            findViewById(R.id.main),
-                            "${newestUnread.title}\n${newestUnread.body}",
-                            Snackbar.LENGTH_LONG
-                        ).show()
+                        // Push-уведомление в шторку (работает даже если приложение свёрнуто)
+                        sendPushNotification(newestUnread.title, newestUnread.body)
+                        // В-приложении: показываем снакбар только если не на странице заказов
+                        if (currentPageId != R.id.navigation_orders) {
+                            Snackbar.make(
+                                findViewById(R.id.main),
+                                "${newestUnread.title}\n${newestUnread.body}",
+                                Snackbar.LENGTH_LONG,
+                            ).show()
+                        }
                     }
                 }
             },
@@ -2358,6 +2402,107 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    // ─── Push-уведомления ───────────────────────────────────────────────────
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                NOTIF_CHANNEL_ID,
+                NOTIF_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "Изменения статуса заказов"
+            }
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .createNotificationChannel(channel)
+        }
+    }
+
+    /** Показывает push-уведомление в шторке. Ничего не делает, если уведомления выключены или нет разрешения. */
+    fun sendPushNotification(title: String, body: String) {
+        if (!sharedPreferences.getBoolean(NOTIFICATIONS_KEY, false)) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            != PermissionChecker.PERMISSION_GRANTED
+        ) return
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pi = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notif = NotificationCompat.Builder(this, NOTIF_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notifications)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(System.currentTimeMillis().toInt() and 0xFFFF, notif)
+    }
+
+    /** Запрашивает разрешение на уведомления из онбординга (при входе). */
+    private fun requestNotifPermissionOnLogin() {
+        notifPermRequestFromSettings = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            // До Android 13 разрешение автоматически есть
+            saveNotifications(true)
+            notificationsSwitch.setOnCheckedChangeListener(null)
+            notificationsSwitch.isChecked = true
+            setupNotificationSwitchListener()
+            showNotifOnboardingHint()
+        }
+    }
+
+    /** Показывается после выбора пользователем в системном диалоге при входе. */
+    private fun showNotifOnboardingHint() {
+        Snackbar.make(
+            findViewById(R.id.main),
+            "Настройку уведомлений можно изменить в разделе «Настройки»",
+            Snackbar.LENGTH_LONG,
+        ).show()
+    }
+
+    /**
+     * Вызывается при каждом успешном входе / регистрации.
+     * При первом входе показывает системное окно разрешения.
+     */
+    private fun onAfterLogin() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(PUSH_NOTIF_ASKED_KEY, false)) {
+            prefs.edit().putBoolean(PUSH_NOTIF_ASKED_KEY, true).apply()
+            requestNotifPermissionOnLogin()
+        }
+    }
+
+    /** Настраивает только listener переключателя уведомлений (вызывается повторно после ручной смены isChecked). */
+    private fun setupNotificationSwitchListener() {
+        notificationsSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                // Если разрешение уже есть — просто включаем
+                val alreadyGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+                    PermissionChecker.PERMISSION_GRANTED
+                if (alreadyGranted) {
+                    saveNotifications(true)
+                } else {
+                    notifPermRequestFromSettings = true
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            } else {
+                saveNotifications(false)
+            }
+        }
+    }
+
     private fun setupSettingsListeners() {
         themeToggleGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (isChecked) {
@@ -2375,10 +2520,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        notificationsSwitch.setOnCheckedChangeListener { _, isChecked ->
-            saveNotifications(isChecked)
-            Log.d("Settings", "Уведомления ${if (isChecked) "включены" else "отключены"}")
-        }
+        setupNotificationSwitchListener()
 
         hapticFeedbackSwitch.setOnCheckedChangeListener { _, isChecked ->
             saveHapticFeedback(isChecked)
@@ -2399,7 +2541,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateSettingsUI() {
         val sharedPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val selectedTheme = sharedPrefs.getInt(THEME_KEY, AppCompatDelegate.MODE_NIGHT_NO)
-        val notificationsEnabled = sharedPrefs.getBoolean(NOTIFICATIONS_KEY, true)
+        val notificationsEnabled = sharedPrefs.getBoolean(NOTIFICATIONS_KEY, false)
         val hapticEnabled = sharedPrefs.getBoolean(HAPTIC_KEY, true)
         val keepScreenOn = sharedPrefs.getBoolean(KEEP_SCREEN_ON_KEY, false)
 
@@ -2422,8 +2564,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Обновить Switch в соответствии с сохраненным состоянием уведомлений
+        // Обновить Switch без срабатывания listener (чтобы не инициировать запрос разрешения при каждом открытии)
+        notificationsSwitch.setOnCheckedChangeListener(null)
         notificationsSwitch.isChecked = notificationsEnabled
+        setupNotificationSwitchListener()
         hapticFeedbackSwitch.isChecked = hapticEnabled
         keepScreenOnSwitch.isChecked = keepScreenOn
         Log.d("Settings", "UI: Переключатель уведомлений обновлен на ${if (notificationsEnabled) "вкл" else "выкл"}")
