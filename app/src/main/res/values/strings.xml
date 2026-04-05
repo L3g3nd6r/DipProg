@@ -62,7 +62,15 @@
     <string name="profile_nav_ai">ИИ-помощник</string>
     <string name="profile_nav_ai_sub">Подбор комплектующих в чате</string>
     <string name="profile_nav_settings">Настройки</string>
-    <string name="profile_nav_settings_sub">Тема и уведомления</string>
+    <string name="profile_nav_settings_sub">Тема, уведомления и удобство</string>
+    <string name="settings_page_subtitle">Тема, уведомления и удобство</string>
+    <string name="settings_convenience_title">Удобство</string>
+    <string name="settings_convenience_hint">Тактильный отклик, экран и системные параметры</string>
+    <string name="settings_haptic">Тактильный отклик</string>
+    <string name="settings_keep_screen_on">Не гасить экран</string>
+    <string name="settings_keep_screen_on_hint">Пока приложение на экране — удобно при долгом подборе в каталоге</string>
+    <string name="settings_open_system_app">Системные настройки приложения</string>
+    <string name="settings_open_system_app_hint">Разрешения, уведомления ОС, хранилище</string>
     <string name="orders_title">Заказы</string>
     <string name="orders_subtitle_customer">Отслеживайте статус и подтвердите получение после доставки</string>
     <string name="orders_subtitle_assembler">Сборка, отправка и подтверждение клиентом</string>

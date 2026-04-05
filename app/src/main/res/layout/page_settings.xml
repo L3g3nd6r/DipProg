@@ -1,141 +1,221 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="?attr/backgroundColor"
-    android:orientation="vertical"
-    android:padding="20dp">
+    android:clipToPadding="false"
+    android:fillViewport="true"
+    android:padding="20dp"
+    android:scrollbars="vertical">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Настройки"
-        android:textAppearance="@style/TextAppearance.Material3.HeadlineSmall"
-        android:textColor="?attr/colorOnSurface" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:layout_marginBottom="20dp"
-        android:text="Тема и уведомления"
-        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-        android:textColor="?attr/colorOnSurfaceVariant" />
-
-    <com.google.android.material.card.MaterialCardView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
-        app:cardBackgroundColor="?attr/colorSurface"
-        app:cardCornerRadius="20dp"
-        app:cardElevation="0dp"
-        app:strokeColor="?attr/colorOutline"
-        app:strokeWidth="1dp">
+        android:orientation="vertical"
+        android:paddingBottom="24dp">
 
-        <LinearLayout
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Настройки"
+            android:textAppearance="@style/TextAppearance.Material3.HeadlineSmall"
+            android:textColor="?attr/colorOnSurface" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="20dp"
+            android:text="@string/settings_page_subtitle"
+            android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+            android:textColor="?attr/colorOnSurfaceVariant" />
+
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="18dp">
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="?attr/colorSurface"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="0dp"
+            app:strokeColor="?attr/colorOutline"
+            app:strokeWidth="1dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:text="Тема"
-                android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                android:textColor="?attr/colorOnSurface" />
-
-            <com.google.android.material.button.MaterialButtonToggleGroup
-                android:id="@+id/themeToggleGroup"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:checkedButton="@+id/lightThemeButton"
-                app:selectionRequired="true"
-                app:singleSelection="true">
+                android:orientation="vertical"
+                android:padding="18dp">
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/lightThemeButton"
-                    style="?attr/materialButtonOutlinedStyle"
-                    android:layout_width="0dp"
+                <TextView
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Светлая" />
+                    android:layout_marginBottom="12dp"
+                    android:text="Тема"
+                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                    android:textColor="?attr/colorOnSurface" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/darkThemeButton"
-                    style="?attr/materialButtonOutlinedStyle"
-                    android:layout_width="0dp"
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/themeToggleGroup"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Тёмная" />
-            </com.google.android.material.button.MaterialButtonToggleGroup>
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+                    app:checkedButton="@+id/lightThemeButton"
+                    app:selectionRequired="true"
+                    app:singleSelection="true">
 
-    <com.google.android.material.card.MaterialCardView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
-        app:cardBackgroundColor="?attr/colorSurface"
-        app:cardCornerRadius="20dp"
-        app:cardElevation="0dp"
-        app:strokeColor="?attr/colorOutline"
-        app:strokeWidth="1dp">
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/lightThemeButton"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Светлая" />
 
-        <LinearLayout
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/darkThemeButton"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Тёмная" />
+                </com.google.android.material.button.MaterialButtonToggleGroup>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="18dp">
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="?attr/colorSurface"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="0dp"
+            app:strokeColor="?attr/colorOutline"
+            app:strokeWidth="1dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="4dp"
-                android:text="Уведомления"
-                android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                android:textColor="?attr/colorOnSurface" />
-
-            <com.google.android.material.materialswitch.MaterialSwitch
-                android:id="@+id/notificationsSwitch"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Разрешить уведомления" />
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+                android:orientation="vertical"
+                android:padding="18dp">
 
-    <com.google.android.material.card.MaterialCardView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        app:cardBackgroundColor="?attr/colorSurface"
-        app:cardCornerRadius="20dp"
-        app:cardElevation="0dp"
-        app:strokeColor="?attr/colorOutline"
-        app:strokeWidth="1dp">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="4dp"
+                    android:text="Уведомления"
+                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                    android:textColor="?attr/colorOnSurface" />
 
-        <LinearLayout
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/notificationsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Разрешить уведомления" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="18dp">
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="?attr/colorSurface"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="0dp"
+            app:strokeColor="?attr/colorOutline"
+            app:strokeWidth="1dp">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="О приложении"
-                android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                android:textColor="?attr/colorOnSurface" />
+                android:orientation="vertical"
+                android:padding="18dp">
 
-            <TextView
-                android:id="@+id/versionInfoText"
-                android:layout_width="wrap_content"
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="4dp"
+                    android:text="@string/settings_convenience_title"
+                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="12dp"
+                    android:text="@string/settings_convenience_hint"
+                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/hapticFeedbackSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_haptic" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/keepScreenOnSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/settings_keep_screen_on" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:layout_marginBottom="12dp"
+                    android:text="@string/settings_keep_screen_on_hint"
+                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/openAppSystemSettingsButton"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_open_system_app" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="@string/settings_open_system_app_hint"
+                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardBackgroundColor="?attr/colorSurface"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="0dp"
+            app:strokeColor="?attr/colorOutline"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:text="Версия: 0.1.2" />
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
-</LinearLayout>
+                android:orientation="vertical"
+                android:padding="18dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:text="О приложении"
+                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <TextView
+                    android:id="@+id/versionInfoText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Версия: 0.1.2"
+                    android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>

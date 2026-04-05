@@ -4,6 +4,10 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.content.SharedPreferences
 import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
@@ -15,12 +19,15 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MenuItem
 import android.view.View
+import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.content.ContextCompat
+import androidx.core.view.MenuItemCompat
 import com.example.dipprog.R
 import com.example.dipprog.api.BuildsAdapter
 import com.example.dipprog.api.BuildsApi
@@ -136,10 +143,15 @@ class MainActivity : AppCompatActivity() {
     // --- Добавленные поля для настроек ---
     private lateinit var themeToggleGroup: MaterialButtonToggleGroup
     private lateinit var notificationsSwitch: MaterialSwitch
+    private lateinit var hapticFeedbackSwitch: MaterialSwitch
+    private lateinit var keepScreenOnSwitch: MaterialSwitch
+    private lateinit var openAppSystemSettingsButton: MaterialButton
     private lateinit var sharedPreferences: SharedPreferences
     private val PREFS_NAME = "MyPrefs"
     private val THEME_KEY = "selected_theme"
     private val NOTIFICATIONS_KEY = "notifications_enabled"
+    private val HAPTIC_KEY = "haptic_feedback_enabled"
+    private val KEEP_SCREEN_ON_KEY = "keep_screen_on"
 
     // --- Добавленные поля для чата ---
     private lateinit var messagesContainer: LinearLayout
@@ -192,6 +204,9 @@ class MainActivity : AppCompatActivity() {
         // --- Инициализация views для настроек ---
         themeToggleGroup = settingsPage.findViewById(R.id.themeToggleGroup)
         notificationsSwitch = settingsPage.findViewById(R.id.notificationsSwitch)
+        hapticFeedbackSwitch = settingsPage.findViewById(R.id.hapticFeedbackSwitch)
+        keepScreenOnSwitch = settingsPage.findViewById(R.id.keepScreenOnSwitch)
+        openAppSystemSettingsButton = settingsPage.findViewById(R.id.openAppSystemSettingsButton)
         // TextView для версии можно найти и установить значение при необходимости
         val versionInfoText: android.widget.TextView = settingsPage.findViewById(R.id.versionInfoText)
         try {
@@ -223,6 +238,7 @@ class MainActivity : AppCompatActivity() {
         setupTopBarMenu()
         setupProfileListeners()
         setupSettingsListeners()
+        applyKeepScreenOnSetting()
         setupChatListeners()
         setupAuthScreen()
         restoreChatFromState(savedInstanceState)
@@ -1752,6 +1768,23 @@ class MainActivity : AppCompatActivity() {
                 else -> false
             }
         }
+        topAppBar.post { applyTopAppBarMenuIconTint() }
+    }
+
+    /** Material 3 не всегда красит иконки меню из темы — задаём tint явно (фиолетовый в тёмной теме). */
+    private fun applyTopAppBarMenuIconTint() {
+        val night =
+            (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val colorInt = if (night) {
+            ContextCompat.getColor(this, R.color.md_primary)
+        } else {
+            ContextCompat.getColor(this, R.color.md_on_surface_variant)
+        }
+        val list = ColorStateList.valueOf(colorInt)
+        val menu = topAppBar.menu
+        for (i in 0 until menu.size()) {
+            MenuItemCompat.setIconTintList(menu.getItem(i), list)
+        }
     }
 
     /** FAB корзины: выше на экране одной сборки, у списка сборок — у нижнего края. */
@@ -2223,7 +2256,7 @@ class MainActivity : AppCompatActivity() {
         bottomNavigationView.setOnItemSelectedListener { menuItem ->
             // Не вызывать showPageById повторно при программной установке selectedItemId (иначе рекурсия и падение)
             if (currentPageId == menuItem.itemId) return@setOnItemSelectedListener true
-            bottomNavigationView.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+            hapticIfEnabled(bottomNavigationView)
             when (menuItem.itemId) {
                 R.id.navigation_home -> {
                     showPageById(R.id.navigation_home)
@@ -2293,9 +2326,42 @@ class MainActivity : AppCompatActivity() {
         Log.d("Settings", "Уведомления сохранены: $enabled")
     }
 
+    private fun saveHapticFeedback(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean(HAPTIC_KEY, enabled).apply()
+    }
+
+    private fun saveKeepScreenOn(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean(KEEP_SCREEN_ON_KEY, enabled).apply()
+        applyKeepScreenOnSetting()
+    }
+
+    private fun applyKeepScreenOnSetting() {
+        val on = sharedPreferences.getBoolean(KEEP_SCREEN_ON_KEY, false)
+        if (on) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    private fun hapticIfEnabled(view: View) {
+        if (sharedPreferences.getBoolean(HAPTIC_KEY, true)) {
+            view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+        }
+    }
+
+    private fun openApplicationSystemSettings() {
+        startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", packageName, null)
+            },
+        )
+    }
+
     private fun setupSettingsListeners() {
-        themeToggleGroup.addOnButtonCheckedListener { group, checkedId, isChecked ->
+        themeToggleGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (isChecked) {
+                hapticIfEnabled(themeToggleGroup)
                 when (checkedId) {
                     R.id.lightThemeButton -> {
                         saveTheme(AppCompatDelegate.MODE_NIGHT_NO)
@@ -2313,6 +2379,19 @@ class MainActivity : AppCompatActivity() {
             saveNotifications(isChecked)
             Log.d("Settings", "Уведомления ${if (isChecked) "включены" else "отключены"}")
         }
+
+        hapticFeedbackSwitch.setOnCheckedChangeListener { _, isChecked ->
+            saveHapticFeedback(isChecked)
+        }
+
+        keepScreenOnSwitch.setOnCheckedChangeListener { _, isChecked ->
+            saveKeepScreenOn(isChecked)
+        }
+
+        openAppSystemSettingsButton.setOnClickListener {
+            hapticIfEnabled(it)
+            openApplicationSystemSettings()
+        }
     }
 
     // Этот метод вызывается каждый раз при открытии страницы настроек
@@ -2321,6 +2400,8 @@ class MainActivity : AppCompatActivity() {
         val sharedPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val selectedTheme = sharedPrefs.getInt(THEME_KEY, AppCompatDelegate.MODE_NIGHT_NO)
         val notificationsEnabled = sharedPrefs.getBoolean(NOTIFICATIONS_KEY, true)
+        val hapticEnabled = sharedPrefs.getBoolean(HAPTIC_KEY, true)
+        val keepScreenOn = sharedPrefs.getBoolean(KEEP_SCREEN_ON_KEY, false)
 
         // Обновить ToggleGroup в соответствии с сохраненной темой
         when (selectedTheme) {
@@ -2343,6 +2424,8 @@ class MainActivity : AppCompatActivity() {
 
         // Обновить Switch в соответствии с сохраненным состоянием уведомлений
         notificationsSwitch.isChecked = notificationsEnabled
+        hapticFeedbackSwitch.isChecked = hapticEnabled
+        keepScreenOnSwitch.isChecked = keepScreenOn
         Log.d("Settings", "UI: Переключатель уведомлений обновлен на ${if (notificationsEnabled) "вкл" else "выкл"}")
     }
 
@@ -2495,6 +2578,11 @@ class MainActivity : AppCompatActivity() {
         chatHistory.add(Pair(text, isUser))
         addMessageBubble(text, isUser)
         scrollToBottomOfMessages()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applyKeepScreenOnSetting()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
