@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name">DipProg</string>
-    <string name="app_toolbar_title">DipProg</string>
+    <string name="app_name">PC Forge</string>
+    <string name="app_toolbar_title">PC Forge</string>
     <string name="app_tagline">Сборка ПК с умным подбором</string>
     <string name="home_hero_title">Собери ПК\nпо каталогу и ИИ</string>
     <string name="home_hero_subtitle">Каталог, сборка, корзина и ИИ — всё под рукой в нижней панели</string>
@@ -27,8 +27,9 @@
     <string name="ai_suggestion_save_build_with_count">Сохранить сборку · %1$d поз.</string>
     <string name="build_remove_component">Удалить: %1$s</string>
     <string name="menu_guide">Руководство</string>
-    <string name="guide_intro">Краткий справочник по комплектующим и сборке ПК. Используйте поиск по слову — например «Ryzen», «БП», «SSD».</string>
-    <string name="guide_search_hint">Поиск по разделам…</string>
+    <string name="guide_intro">Выберите тему ниже — откроется подробное руководство. Поиск ищет по названиям категорий и по тексту внутри разделов (например «Ryzen», «БП», «SSD»).</string>
+    <string name="guide_search_hint">Поиск по категориям и тексту…</string>
+    <string name="guide_back_to_categories">Назад к категориям</string>
     <string name="guide_empty">Ничего не найдено. Попробуйте другое слово.</string>
     <string name="home_guide_title">Справочник для начинающих</string>
     <string name="home_guide_subtitle">CPU, GPU, ОЗУ, БП, диски — что значат характеристики</string>
@@ -145,6 +146,13 @@
     <string name="auth_remember_me">Запомнить меня</string>
     <string name="auth_remember_hint">Если выключено, при следующем запуске потребуется войти снова.</string>
     <string name="auth_login">Войти</string>
+    <string name="auth_forgot_password">Забыли пароль?</string>
+    <string name="auth_forgot_title">Сброс пароля</string>
+    <string name="auth_forgot_send_code">Отправить код</string>
+    <string name="auth_forgot_reset">Сбросить пароль</string>
+    <string name="auth_forgot_code_hint">Код из письма</string>
+    <string name="auth_forgot_new_password_hint">Новый пароль</string>
+    <string name="auth_forgot_code_sent">Если аккаунт существует, код отправлен на почту</string>
     <string name="auth_register">Зарегистрироваться</string>
     <string name="auth_guest">Продолжить как гость</string>
     <string name="auth_guest_hint">Без аккаунта: просмотр каталога и чат с ИИ. Сборки и корзина — после входа.</string>

@@ -15,6 +15,8 @@ const MIGRATIONS = [
   { file: '001_add_max_per_build.sql', name: 'max_per_build' },
   { file: '002_add_avatar_url.sql', name: 'avatar_url' },
   { file: '003_builds_unique_name.sql', name: 'builds_unique_name' },
+  { file: '004_avatar_url_text.sql', name: 'avatar_url_text' },
+  { file: '005_password_reset_codes.sql', name: 'password_reset_codes' },
 ];
 
 async function run() {

@@ -22,11 +22,12 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/componentPickerBack"
             style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
             android:contentDescription="@string/component_picker_back_cd"
             app:backgroundTint="?attr/colorPrimaryContainer"
             app:icon="@drawable/ic_chevron_left"
+            app:iconSize="26dp"
             app:iconTint="?attr/colorPrimary" />
 
         <TextView
@@ -40,8 +41,8 @@
 
         <!-- Баланс ширины слева (как у кнопки назад), чтобы «Каталог» оставался по центру -->
         <View
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
             android:visibility="invisible" />
     </LinearLayout>
 

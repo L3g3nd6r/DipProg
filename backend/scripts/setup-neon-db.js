@@ -37,7 +37,7 @@ async function step(label, fn) {
 }
 
 async function main() {
-  console.log('\n🚀 Инициализация облачной БД DipProg\n');
+  console.log('\n🚀 Инициализация облачной БД PC Forge\n');
 
   // 1. Схема пользователей, заказов, уведомлений
   await step('Таблицы users / orders / notifications (schema.sql)', async () => {
@@ -55,6 +55,8 @@ async function main() {
   const migrations = [
     { file: '002_add_avatar_url.sql',     name: 'avatar_url' },
     { file: '003_builds_unique_name.sql', name: 'builds_unique_name' },
+    { file: '004_avatar_url_text.sql',    name: 'avatar_url_text' },
+    { file: '005_password_reset_codes.sql', name: 'password_reset_codes' },
   ];
   for (const m of migrations) {
     const migPath = path.join(__dirname, '..', 'migrations', m.file);

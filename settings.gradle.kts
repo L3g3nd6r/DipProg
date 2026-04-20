@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "DipProg"
+rootProject.name = "PC Forge"
 include(":app")

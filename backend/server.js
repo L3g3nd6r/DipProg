@@ -99,6 +99,26 @@ async function ensureRuntimeSchema() {
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // На старых БД avatar_url мог остаться VARCHAR(512) — data URI не влезает; приводим к TEXT без отдельной миграции
+  try {
+    await pool.query('ALTER TABLE users ALTER COLUMN avatar_url TYPE TEXT');
+  } catch (err) {
+    const msg = String(err && err.message ? err.message : err);
+    if (!msg.includes('does not exist') && !msg.includes('column "avatar_url" of relation "users" does not exist')) {
+      console.warn('ensureRuntimeSchema: avatar_url→TEXT:', msg);
+    }
+  }
+
+  // PATCH /api/auth/me обновляет updated_at — на старых БД колонки могло не быть
+  try {
+    await pool.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    `);
+  } catch (err) {
+    console.warn('ensureRuntimeSchema: users.updated_at:', err.message || err);
+  }
 }
 
 function authMiddleware(req, res, next) {
@@ -116,7 +136,8 @@ function authMiddleware(req, res, next) {
 }
 
 app.use(cors());
-app.use(express.json());
+// По умолчанию express.json() — лимит ~100kb; аватар как data URI в JSON легко больше → 413/ошибка парсера
+app.use(express.json({ limit: '8mb' }));
 
 // Временный диагностический маршрут — покажет, сколько assembler-email настроено
 app.get('/api/debug-env', (req, res) => {

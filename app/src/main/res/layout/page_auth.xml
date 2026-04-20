@@ -154,6 +154,16 @@
             </com.google.android.material.textfield.TextInputLayout>
 
             <TextView
+                android:id="@+id/authForgotPasswordText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginTop="8dp"
+                android:text="@string/auth_forgot_password"
+                android:textAppearance="@style/TextAppearance.Material3.LabelLarge"
+                android:textColor="?attr/colorPrimary" />
+
+            <TextView
                 android:id="@+id/authErrorText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

@@ -17,7 +17,7 @@
         </mxCell>
 
         <!-- System boundary -->
-        <mxCell id="boundary" value="DipProg (мобильное приложение)" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;strokeColor=#444444;fillColor=none;" vertex="1" parent="1">
+        <mxCell id="boundary" value="PC Forge (мобильное приложение)" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;strokeColor=#444444;fillColor=none;" vertex="1" parent="1">
           <mxGeometry x="160" y="90" width="820" height="560" as="geometry"/>
         </mxCell>
 

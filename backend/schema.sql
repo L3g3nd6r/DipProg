@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
     email       VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     name        VARCHAR(255) NOT NULL,
-    avatar_url  VARCHAR(512) NULL,
+    avatar_url  TEXT NULL,
     created_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -47,3 +47,12 @@ CREATE TABLE IF NOT EXISTS order_notifications (
     created_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_order_notifications_user ON order_notifications(user_id);
+
+-- Коды для сброса пароля
+CREATE TABLE IF NOT EXISTS password_reset_codes (
+    email       VARCHAR(255) PRIMARY KEY,
+    code        VARCHAR(16) NOT NULL,
+    expires_at  TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_password_reset_codes_expires_at ON password_reset_codes(expires_at);

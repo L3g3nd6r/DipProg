@@ -11,9 +11,10 @@ import android.app.PendingIntent
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.result.contract.ActivityResultContracts
+import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import androidx.core.content.PermissionChecker
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.content.SharedPreferences
@@ -47,6 +48,7 @@ import com.example.dipprog.auth.AuthApi
 import com.example.dipprog.auth.SessionManager
 import com.example.dipprog.guide.BeginnerGuide
 import com.example.dipprog.guide.GuideAdapter
+import com.example.dipprog.guide.GuideCategoryAdapter
 import com.example.dipprog.util.ComponentSpecFormatter
 import com.example.dipprog.util.launchIo
 import android.widget.ArrayAdapter
@@ -70,6 +72,14 @@ import com.google.android.material.textfield.TextInputLayout
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import com.example.dipprog.work.NotificationCheckWorker
+import com.example.dipprog.work.NotificationService
+import java.util.concurrent.TimeUnit
+import android.graphics.ImageDecoder
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.text.Layout
 import android.text.SpannableStringBuilder
@@ -113,6 +123,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    private val guideDetailBackCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            closeGuideCategoryDetail()
+        }
+    }
     private var loadCartCallback: (() -> Unit)? = null
     private var openBuildCartFn: (() -> Unit)? = null
     private var loadBuildDetailFn: ((Int) -> Unit)? = null
@@ -128,26 +144,20 @@ class MainActivity : AppCompatActivity() {
 
     /** Launcher для разрешения POST_NOTIFICATIONS */
     private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            syncNotificationSwitchFromSystem()
+            if (systemNotificationsEnabled() && sessionManager.isLoggedIn && isBackgroundMonitorEnabled()) {
+                NotificationService.start(this)
+            }
             if (notifPermRequestFromSettings) {
-                // Запрос из настроек: синхронизируем переключатель и сохраняем
-                saveNotifications(granted)
-                notificationsSwitch.setOnCheckedChangeListener(null)
-                notificationsSwitch.isChecked = granted
-                setupNotificationSwitchListener()
-                if (!granted) {
+                if (!systemNotificationsEnabled()) {
                     Snackbar.make(
                         settingsPage,
-                        "Разрешение отклонено. Разрешите уведомления в системных настройках приложения.",
+                        "Разрешение отклонено. Включите уведомления в настройках Android.",
                         Snackbar.LENGTH_LONG,
                     ).show()
                 }
             } else {
-                // Запрос при входе в аккаунт: сохраняем результат и показываем подсказку
-                saveNotifications(granted)
-                notificationsSwitch.setOnCheckedChangeListener(null)
-                notificationsSwitch.isChecked = granted
-                setupNotificationSwitchListener()
                 showNotifOnboardingHint()
             }
         }
@@ -157,22 +167,41 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
             if (uri == null) return@registerForActivityResult
             Thread {
+                fun showGalleryError(msg: String) {
+                    runOnUiThread {
+                        Snackbar.make(findViewById(R.id.main), msg, Snackbar.LENGTH_LONG).show()
+                    }
+                }
                 try {
-                    val stream = contentResolver.openInputStream(uri) ?: return@Thread
-                    val bitmap = android.graphics.BitmapFactory.decodeStream(stream)
-                    stream.close()
-                    if (bitmap == null) return@Thread
-                    val maxDim = 300
+                    val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        val source = ImageDecoder.createSource(contentResolver, uri)
+                        ImageDecoder.decodeBitmap(source)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        contentResolver.openInputStream(uri)?.use { stream ->
+                            android.graphics.BitmapFactory.decodeStream(stream)
+                        }
+                    }
+                    if (bitmap == null) {
+                        showGalleryError("Не удалось открыть изображение")
+                        return@Thread
+                    }
+                    val maxDim = 384
                     val scale = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height, 1f)
                     val w = (bitmap.width * scale).toInt().coerceAtLeast(1)
                     val h = (bitmap.height * scale).toInt().coerceAtLeast(1)
                     val resized = android.graphics.Bitmap.createScaledBitmap(bitmap, w, h, true)
+                    if (resized != bitmap) bitmap.recycle()
                     val baos = java.io.ByteArrayOutputStream()
-                    resized.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, baos)
+                    resized.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, baos)
+                    resized.recycle()
                     val b64 = android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP)
                     val dataUri = "data:image/jpeg;base64,$b64"
                     runOnUiThread { onGalleryAvatarPicked?.invoke(dataUri) }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    Log.e("Gallery", "avatar pick", e)
+                    showGalleryError(e.message ?: "Ошибка чтения фото из галереи")
+                }
             }.start()
         }
 
@@ -181,14 +210,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var notificationsSwitch: MaterialSwitch
     private lateinit var hapticFeedbackSwitch: MaterialSwitch
     private lateinit var keepScreenOnSwitch: MaterialSwitch
+    private lateinit var backgroundMonitorSwitch: MaterialSwitch
     private lateinit var openAppSystemSettingsButton: MaterialButton
     private lateinit var sharedPreferences: SharedPreferences
     private val PREFS_NAME = "MyPrefs"
     private val THEME_KEY = "selected_theme"
-    private val NOTIFICATIONS_KEY = "notifications_enabled"
     private val HAPTIC_KEY = "haptic_feedback_enabled"
     private val KEEP_SCREEN_ON_KEY = "keep_screen_on"
+    private val BG_MONITOR_KEY = "background_monitor_enabled"
     private val PUSH_NOTIF_ASKED_KEY = "push_notif_asked_on_login"
+    private val NOTIF_PERM_EVER_ASKED_KEY = "notif_perm_ever_asked"
     private val NOTIF_CHANNEL_ID = "order_notifications"
     private val NOTIF_CHANNEL_NAME = "Уведомления о заказах"
 
@@ -220,6 +251,7 @@ class MainActivity : AppCompatActivity() {
         authOverlay = findViewById(R.id.authOverlay)
         sessionManager = SessionManager(this)
         onBackPressedDispatcher.addCallback(this, authBackCallback)
+        onBackPressedDispatcher.addCallback(this, guideDetailBackCallback)
 
         // Инициализация views
         homePage = findViewById(R.id.homePage)
@@ -245,6 +277,7 @@ class MainActivity : AppCompatActivity() {
         notificationsSwitch = settingsPage.findViewById(R.id.notificationsSwitch)
         hapticFeedbackSwitch = settingsPage.findViewById(R.id.hapticFeedbackSwitch)
         keepScreenOnSwitch = settingsPage.findViewById(R.id.keepScreenOnSwitch)
+        backgroundMonitorSwitch = settingsPage.findViewById(R.id.backgroundMonitorSwitch)
         openAppSystemSettingsButton = settingsPage.findViewById(R.id.openAppSystemSettingsButton)
         // TextView для версии можно найти и установить значение при необходимости
         val versionInfoText: android.widget.TextView = settingsPage.findViewById(R.id.versionInfoText)
@@ -269,6 +302,7 @@ class MainActivity : AppCompatActivity() {
 
 
         setupBottomNavigation()
+        setupKeyboardBottomNavListener()
         setupBuildsAndCart()
         setupBuildPageCartUi()
         setupOrdersPage()
@@ -279,6 +313,8 @@ class MainActivity : AppCompatActivity() {
         setupSettingsListeners()
         applyKeepScreenOnSetting()
         createNotificationChannel()
+        lastOrderNotificationId = getSharedPreferences("notif_worker_prefs", Context.MODE_PRIVATE)
+            .getInt("last_bg_notif_id", -1)
         setupChatListeners()
         setupAuthScreen()
         restoreChatFromState(savedInstanceState)
@@ -297,7 +333,11 @@ class MainActivity : AppCompatActivity() {
         } else {
             savedId
         }
-        homePage.post { showPageById(initialPage) }
+        homePage.post {
+            showPageById(initialPage)
+            if (sessionManager.isLoggedIn) onAfterLogin()
+            startNotifPolling()
+        }
     }
 
     private fun syncSessionFromServerIfNeeded() {
@@ -337,6 +377,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showPageById(id: Int) {
+        if (id != R.id.action_guide) {
+            val detailPanel = guidePage.findViewById<View>(R.id.guideDetailPanel)
+            if (detailPanel.visibility == View.VISIBLE) {
+                closeGuideCategoryDetail()
+            }
+        }
         currentPageId = id
         val page = getPageViewForId(id)
         showPage(page)
@@ -1148,9 +1194,11 @@ class MainActivity : AppCompatActivity() {
         val rememberSwitch = findViewById<MaterialSwitch>(R.id.authRememberSwitch)
         val submitBtn = findViewById<MaterialButton>(R.id.authSubmitButton)
         val guestBtn = findViewById<MaterialButton>(R.id.authGuestButton)
+        val forgotPasswordText = findViewById<TextView>(R.id.authForgotPasswordText)
 
         fun updateAuthFormMode(isRegister: Boolean) {
             nameLayout.visibility = if (isRegister) View.VISIBLE else View.GONE
+            forgotPasswordText.visibility = if (isRegister) View.GONE else View.VISIBLE
             submitBtn.text = if (isRegister) getString(R.string.auth_register) else getString(R.string.auth_login)
         }
         updateAuthFormMode(false)
@@ -1237,11 +1285,102 @@ class MainActivity : AppCompatActivity() {
             bottomNavigationView.selectedItemId = R.id.navigation_home
         }
 
+        forgotPasswordText.setOnClickListener {
+            showForgotPasswordDialog(emailInput.text?.toString()?.trim().orEmpty())
+        }
+
         if (sessionManager.shouldShowAuthOnLaunch()) {
             showAuthOverlay(registerMode = false)
         } else {
             hideAuthOverlay()
         }
+    }
+
+    private fun showForgotPasswordDialog(prefillEmail: String = "") {
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_forgot_password, null)
+        val emailLayout = view.findViewById<TextInputLayout>(R.id.forgotEmailLayout)
+        val emailInput = view.findViewById<TextInputEditText>(R.id.forgotEmailInput)
+        val codeLayout = view.findViewById<TextInputLayout>(R.id.forgotCodeLayout)
+        val codeInput = view.findViewById<TextInputEditText>(R.id.forgotCodeInput)
+        val newPassLayout = view.findViewById<TextInputLayout>(R.id.forgotNewPasswordLayout)
+        val newPassInput = view.findViewById<TextInputEditText>(R.id.forgotNewPasswordInput)
+        emailInput.setText(prefillEmail)
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.auth_forgot_title)
+            .setView(view)
+            .setNeutralButton(R.string.auth_forgot_send_code, null)
+            .setPositiveButton(R.string.auth_forgot_reset, null)
+            .setNegativeButton(R.string.verify_cancel, null)
+            .create()
+
+        dialog.setOnShowListener {
+            val sendCodeBtn = dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+            val resetBtn = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+
+            sendCodeBtn.setOnClickListener {
+                val email = emailInput.text?.toString()?.trim().orEmpty()
+                if (email.isBlank() || !email.contains('@')) {
+                    emailLayout.error = getString(R.string.auth_err_email)
+                    return@setOnClickListener
+                }
+                emailLayout.error = null
+                sendCodeBtn.isEnabled = false
+                Thread {
+                    val result = AuthApi.forgotPassword(email)
+                    runOnUiThread {
+                        sendCodeBtn.isEnabled = true
+                        when (result) {
+                            is AuthApi.ApiResult.Success ->
+                                Snackbar.make(findViewById(R.id.main), result.data.message.ifBlank {
+                                    getString(R.string.auth_forgot_code_sent)
+                                }, Snackbar.LENGTH_LONG).show()
+                            is AuthApi.ApiResult.Error -> emailLayout.error = result.message
+                        }
+                    }
+                }.start()
+            }
+
+            resetBtn.setOnClickListener {
+                val email = emailInput.text?.toString()?.trim().orEmpty()
+                val code = codeInput.text?.toString()?.trim().orEmpty()
+                val newPassword = newPassInput.text?.toString().orEmpty()
+                emailLayout.error = null
+                codeLayout.error = null
+                newPassLayout.error = null
+
+                var hasError = false
+                if (email.isBlank() || !email.contains('@')) {
+                    emailLayout.error = getString(R.string.auth_err_email)
+                    hasError = true
+                }
+                if (code.length != 6) {
+                    codeLayout.error = getString(R.string.verify_email_code_error)
+                    hasError = true
+                }
+                if (newPassword.length < 6) {
+                    newPassLayout.error = getString(R.string.auth_err_password)
+                    hasError = true
+                }
+                if (hasError) return@setOnClickListener
+
+                resetBtn.isEnabled = false
+                Thread {
+                    val result = AuthApi.resetPassword(email, code, newPassword)
+                    runOnUiThread {
+                        resetBtn.isEnabled = true
+                        when (result) {
+                            is AuthApi.ApiResult.Success -> {
+                                dialog.dismiss()
+                                Snackbar.make(findViewById(R.id.main), result.data.message, Snackbar.LENGTH_LONG).show()
+                            }
+                            is AuthApi.ApiResult.Error -> codeLayout.error = result.message
+                        }
+                    }
+                }.start()
+            }
+        }
+        dialog.show()
     }
 
     private fun showVerifyEmailDialog(email: String, rememberMe: Boolean) {
@@ -1335,8 +1474,8 @@ class MainActivity : AppCompatActivity() {
     private fun hideAuthOverlay() {
         authOverlay.visibility = View.GONE
         topAppBar.visibility = View.VISIBLE
-        bottomNavigationView.visibility = View.VISIBLE
         authBackCallback.isEnabled = false
+        findViewById<View>(R.id.main).post { syncBottomNavigationBarVisibility() }
         updateOrdersTabVisibility()
         maybeCheckOrderNotifications(force = true)
     }
@@ -1384,19 +1523,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Периодический опрос (polling) уведомлений каждые 15 сек. */
+    private val notifPollingHandler = Handler(Looper.getMainLooper())
+    private val notifPollingRunnable = object : Runnable {
+        override fun run() {
+            maybeCheckOrderNotifications()
+            notifPollingHandler.postDelayed(this, 15_000L)
+        }
+    }
+
+    private fun startNotifPolling() {
+        notifPollingHandler.removeCallbacks(notifPollingRunnable)
+        notifPollingHandler.postDelayed(notifPollingRunnable, 15_000L)
+    }
+
+    private fun stopNotifPolling() {
+        notifPollingHandler.removeCallbacks(notifPollingRunnable)
+    }
+
     private fun maybeCheckOrderNotifications(force: Boolean = false) {
         if (!sessionManager.isLoggedIn) {
             clearOrdersTabBadge()
             return
         }
-        val notificationsEnabled = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(NOTIFICATIONS_KEY, false)
-        if (!notificationsEnabled) {
-            clearOrdersTabBadge()
-            return
-        }
         val now = System.currentTimeMillis()
-        if (!force && now - lastOrderNotificationCheckAt < 30_000L) return
+        if (!force && now - lastOrderNotificationCheckAt < 15_000L) return
         lastOrderNotificationCheckAt = now
         val token = sessionManager.token ?: return
         launchIo(
@@ -1409,9 +1560,9 @@ class MainActivity : AppCompatActivity() {
                     val newestUnread = list.firstOrNull { !it.is_read }
                     if (newestUnread != null && newestUnread.id != lastOrderNotificationId) {
                         lastOrderNotificationId = newestUnread.id
-                        // Push-уведомление в шторку (работает даже если приложение свёрнуто)
+                        getSharedPreferences("notif_worker_prefs", Context.MODE_PRIVATE)
+                            .edit().putInt("last_bg_notif_id", newestUnread.id).apply()
                         sendPushNotification(newestUnread.title, newestUnread.body)
-                        // В-приложении: показываем снакбар только если не на странице заказов
                         if (currentPageId != R.id.navigation_orders) {
                             Snackbar.make(
                                 findViewById(R.id.main),
@@ -1438,6 +1589,7 @@ class MainActivity : AppCompatActivity() {
                 .setMessage("Вы уверены, что хотите выйти?")
                 .setPositiveButton("Выйти") { _, _ ->
                     sessionManager.logout()
+                    cancelNotificationWork()
                     updateOrdersTabVisibility()
                     updateProfileUI()
                     refreshHomeBuildsCard?.invoke()
@@ -1901,7 +2053,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun shareBuildText(detail: BuildsApi.BuildDetail) {
         val lines = mutableListOf<String>()
-        lines.add("Сборка «${detail.name}» (DipProg)")
+        lines.add("Сборка «${detail.name}» (PC Forge)")
         detail.components?.forEach { c ->
             lines.add("• ${c.category_name ?: ""} ${c.name} ×${c.quantity} — ${c.price ?: "—"} ₽")
         }
@@ -2095,21 +2247,76 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupGuidePage() {
-        val rv = guidePage.findViewById<RecyclerView>(R.id.guideRecycler)
+        val categoryRv = guidePage.findViewById<RecyclerView>(R.id.guideCategoryRecycler)
+        val detailPanel = guidePage.findViewById<View>(R.id.guideDetailPanel)
+        val detailRv = guidePage.findViewById<RecyclerView>(R.id.guideDetailRecycler)
+        val detailTitle = guidePage.findViewById<TextView>(R.id.guideDetailTitle)
+        val detailSubtitle = guidePage.findViewById<TextView>(R.id.guideDetailSubtitle)
+        val backBtn = guidePage.findViewById<MaterialButton>(R.id.guideDetailBackButton)
         val empty = guidePage.findViewById<TextView>(R.id.guideEmpty)
         val search = guidePage.findViewById<TextInputEditText>(R.id.guideSearchInput)
-        rv.layoutManager = LinearLayoutManager(this)
-        val adapter = GuideAdapter(BeginnerGuide.sections) { count ->
+
+        categoryRv.layoutManager = LinearLayoutManager(this)
+        detailRv.layoutManager = LinearLayoutManager(this)
+
+        fun refreshGuideEmpty() {
+            val inDetail = detailPanel.visibility == View.VISIBLE
+            val count = if (inDetail) {
+                detailRv.adapter?.itemCount ?: 0
+            } else {
+                categoryRv.adapter?.itemCount ?: 0
+            }
             empty.visibility = if (count == 0) View.VISIBLE else View.GONE
         }
-        rv.adapter = adapter
+
+        val sectionAdapter = GuideAdapter(emptyList()) { refreshGuideEmpty() }
+        detailRv.adapter = sectionAdapter
+
+        val categoryAdapter = GuideCategoryAdapter(BeginnerGuide.categories, { cat ->
+            detailTitle.text = cat.title
+            detailSubtitle.text = cat.subtitle
+            sectionAdapter.setSections(cat.sections)
+            sectionAdapter.setFilter(search.text?.toString().orEmpty())
+            categoryRv.visibility = View.GONE
+            detailPanel.visibility = View.VISIBLE
+            guideDetailBackCallback.isEnabled = true
+            refreshGuideEmpty()
+        }, { refreshGuideEmpty() })
+        categoryRv.adapter = categoryAdapter
+
+        backBtn.setOnClickListener {
+            hapticIfEnabled(backBtn)
+            closeGuideCategoryDetail()
+        }
+
         search.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
-                adapter.setFilter(s?.toString().orEmpty())
+                val q = s?.toString().orEmpty()
+                if (detailPanel.visibility == View.VISIBLE) {
+                    sectionAdapter.setFilter(q)
+                } else {
+                    categoryAdapter.setFilter(q)
+                }
+                refreshGuideEmpty()
             }
         })
+    }
+
+    private fun closeGuideCategoryDetail() {
+        val detailPanel = guidePage.findViewById<View>(R.id.guideDetailPanel)
+        if (detailPanel.visibility != View.VISIBLE) return
+        val search = guidePage.findViewById<TextInputEditText>(R.id.guideSearchInput)
+        val categoryRv = guidePage.findViewById<RecyclerView>(R.id.guideCategoryRecycler)
+        val categoryAdapter = categoryRv.adapter as? GuideCategoryAdapter ?: return
+        detailPanel.visibility = View.GONE
+        categoryRv.visibility = View.VISIBLE
+        guideDetailBackCallback.isEnabled = false
+        search.text?.clear()
+        categoryAdapter.setFilter("")
+        val empty = guidePage.findViewById<TextView>(R.id.guideEmpty)
+        empty.visibility = if (categoryAdapter.itemCount == 0) View.VISIBLE else View.GONE
     }
 
     private fun setupOrdersPage() {
@@ -2296,6 +2503,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * При открытой клавиатуре нижние вкладки скрываются — больше места для ввода и чата.
+     * Поверх экрана входа вкладки всегда скрыты ([showAuthOverlay]).
+     */
+    private fun syncBottomNavigationBarVisibility() {
+        if (authOverlay.visibility == View.VISIBLE) {
+            bottomNavigationView.visibility = View.GONE
+            return
+        }
+        val root = findViewById<View>(R.id.main)
+        val r = Rect()
+        root.getWindowVisibleDisplayFrame(r)
+        val screenH = root.rootView.height
+        val keypadH = (screenH - r.bottom).coerceAtLeast(0)
+        val threshold = (150 * resources.displayMetrics.density).toInt()
+        bottomNavigationView.visibility = if (keypadH > threshold) View.GONE else View.VISIBLE
+    }
+
+    private fun setupKeyboardBottomNavListener() {
+        val root = findViewById<View>(R.id.main)
+        root.viewTreeObserver.addOnGlobalLayoutListener {
+            syncBottomNavigationBarVisibility()
+        }
+    }
+
     private fun setupBottomNavigation() {
         bottomNavigationView.setOnItemSelectedListener { menuItem ->
             // Не вызывать showPageById повторно при программной установке selectedItemId (иначе рекурсия и падение)
@@ -2362,14 +2594,6 @@ class MainActivity : AppCompatActivity() {
         Log.d("Settings", "Тема сохранена и применена: $themeMode")
     }
 
-    private fun saveNotifications(enabled: Boolean) {
-        with(getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()) {
-            putBoolean(NOTIFICATIONS_KEY, enabled)
-            apply()
-        }
-        Log.d("Settings", "Уведомления сохранены: $enabled")
-    }
-
     private fun saveHapticFeedback(enabled: Boolean) {
         sharedPreferences.edit().putBoolean(HAPTIC_KEY, enabled).apply()
     }
@@ -2388,6 +2612,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun isBackgroundMonitorEnabled(): Boolean {
+        return sharedPreferences.getBoolean(BG_MONITOR_KEY, true)
+    }
+
+    private fun saveBackgroundMonitor(enabled: Boolean) {
+        sharedPreferences.edit().putBoolean(BG_MONITOR_KEY, enabled).apply()
+        if (enabled && sessionManager.isLoggedIn && systemNotificationsEnabled()) {
+            NotificationService.start(this)
+        } else {
+            NotificationService.stop(this)
+        }
+    }
+
     private fun hapticIfEnabled(view: View) {
         if (sharedPreferences.getBoolean(HAPTIC_KEY, true)) {
             view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
@@ -2400,6 +2637,36 @@ class MainActivity : AppCompatActivity() {
                 data = Uri.fromParts("package", packageName, null)
             },
         )
+    }
+
+    /** Реальное состояние уведомлений для приложения (разрешение + не отключены в настройках ОС). */
+    private fun systemNotificationsEnabled(): Boolean =
+        NotificationManagerCompat.from(this).areNotificationsEnabled()
+
+    /** Переключатель в настройках всегда отражает систему, без отдельного флага в SharedPreferences. */
+    private fun syncNotificationSwitchFromSystem() {
+        if (!::notificationsSwitch.isInitialized) return
+        notificationsSwitch.setOnCheckedChangeListener(null)
+        notificationsSwitch.isChecked = systemNotificationsEnabled()
+        setupNotificationSwitchListener()
+    }
+
+    /** Экран «Уведомления» для этого приложения в системных настройках. */
+    private fun openAppNotificationSettings() {
+        try {
+            val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                }
+            } else {
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.fromParts("package", packageName, null)
+                }
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+            openApplicationSystemSettings()
+        }
     }
 
     // ─── Push-уведомления ───────────────────────────────────────────────────
@@ -2418,13 +2685,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Показывает push-уведомление в шторке. Ничего не делает, если уведомления выключены или нет разрешения. */
+    /** Показывает push-уведомление в шторке. Ничего не делает, если ОС не разрешает уведомления. */
     fun sendPushNotification(title: String, body: String) {
-        if (!sharedPreferences.getBoolean(NOTIFICATIONS_KEY, false)) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-            != PermissionChecker.PERMISSION_GRANTED
-        ) return
+        if (!systemNotificationsEnabled()) return
 
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -2447,21 +2710,6 @@ class MainActivity : AppCompatActivity() {
             .notify(System.currentTimeMillis().toInt() and 0xFFFF, notif)
     }
 
-    /** Запрашивает разрешение на уведомления из онбординга (при входе). */
-    private fun requestNotifPermissionOnLogin() {
-        notifPermRequestFromSettings = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            // До Android 13 разрешение автоматически есть
-            saveNotifications(true)
-            notificationsSwitch.setOnCheckedChangeListener(null)
-            notificationsSwitch.isChecked = true
-            setupNotificationSwitchListener()
-            showNotifOnboardingHint()
-        }
-    }
-
     /** Показывается после выбора пользователем в системном диалоге при входе. */
     private fun showNotifOnboardingHint() {
         Snackbar.make(
@@ -2472,33 +2720,121 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Вызывается при каждом успешном входе / регистрации.
-     * При первом входе показывает системное окно разрешения.
+     * Вызывается при успешном входе / регистрации и при запуске с сохранённой сессией.
+     * Показывает системное окно разрешения, если оно ещё не было выдано.
      */
-    private fun onAfterLogin() {
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (!prefs.getBoolean(PUSH_NOTIF_ASKED_KEY, false)) {
-            prefs.edit().putBoolean(PUSH_NOTIF_ASKED_KEY, true).apply()
-            requestNotifPermissionOnLogin()
+    private fun scheduleNotificationWork() {
+        val request = PeriodicWorkRequestBuilder<NotificationCheckWorker>(15, TimeUnit.MINUTES)
+            .build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            NotificationCheckWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request,
+        )
+        if (systemNotificationsEnabled() && isBackgroundMonitorEnabled()) {
+            NotificationService.start(this)
         }
     }
 
-    /** Настраивает только listener переключателя уведомлений (вызывается повторно после ручной смены isChecked). */
-    private fun setupNotificationSwitchListener() {
-        notificationsSwitch.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked) {
-                // Если разрешение уже есть — просто включаем
-                val alreadyGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
-                    PermissionChecker.PERMISSION_GRANTED
-                if (alreadyGranted) {
-                    saveNotifications(true)
-                } else {
+    private fun cancelNotificationWork() {
+        WorkManager.getInstance(this).cancelUniqueWork(NotificationCheckWorker.WORK_NAME)
+        NotificationService.stop(this)
+    }
+
+    private fun onAfterLogin() {
+        scheduleNotificationWork()
+        if (systemNotificationsEnabled()) return
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(PUSH_NOTIF_ASKED_KEY, false)) return
+        prefs.edit().putBoolean(PUSH_NOTIF_ASKED_KEY, true).apply()
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                notifPermRequestFromSettings = false
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("Уведомления о заказах")
+                    .setMessage(
+                        "Чтобы получать уведомления, включите их в настройках Android. " +
+                            "Позже это можно изменить в разделе «Настройки» приложения.",
+                    )
+                    .setPositiveButton("Открыть настройки") { _, _ -> openAppNotificationSettings() }
+                    .setNegativeButton("Позже", null)
+                    .show()
+            }
+        }, 600)
+    }
+
+    /** Включение уведомлений из переключателя (после сброса switch в OFF). */
+    private fun beginEnableNotificationsFromSettings() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val postGranted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (postGranted) {
+                openAppNotificationSettings()
+                return
+            }
+            when {
+                shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) ||
+                    !sharedPreferences.getBoolean(NOTIF_PERM_EVER_ASKED_KEY, false) -> {
+                    sharedPreferences.edit().putBoolean(NOTIF_PERM_EVER_ASKED_KEY, true).apply()
                     notifPermRequestFromSettings = true
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
-            } else {
-                saveNotifications(false)
+                else -> {
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("Уведомления")
+                        .setMessage(
+                            "Системный запрос больше не показывается. " +
+                                "Включите уведомления в настройках приложения.",
+                        )
+                        .setPositiveButton("Открыть настройки") { _, _ -> openAppNotificationSettings() }
+                        .setNegativeButton("Отмена", null)
+                        .show()
+                }
+            }
+        } else {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Уведомления")
+                .setMessage("Включите уведомления для приложения в настройках Android.")
+                .setPositiveButton("Открыть настройки") { _, _ -> openAppNotificationSettings() }
+                .setNegativeButton("Отмена", null)
+                .show()
+        }
+    }
+
+    private fun showTurnOffNotificationsInSystemDialog() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Отключить уведомления")
+            .setMessage(
+                "Состояние переключателя совпадает с настройками Android. " +
+                    "Отключить уведомления можно в системных настройках приложения.",
+            )
+            .setPositiveButton("Открыть настройки") { _, _ -> openAppNotificationSettings() }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    /** Настраивает listener: положение switch = система; включение → запрос/настройки; выключение → только через ОС. */
+    private fun setupNotificationSwitchListener() {
+        notificationsSwitch.setOnCheckedChangeListener { _, isChecked ->
+            val sysOn = systemNotificationsEnabled()
+            when {
+                isChecked && !sysOn -> {
+                    notificationsSwitch.setOnCheckedChangeListener(null)
+                    notificationsSwitch.isChecked = false
+                    setupNotificationSwitchListener()
+                    beginEnableNotificationsFromSettings()
+                }
+                !isChecked && sysOn -> {
+                    notificationsSwitch.setOnCheckedChangeListener(null)
+                    notificationsSwitch.isChecked = true
+                    setupNotificationSwitchListener()
+                    showTurnOffNotificationsInSystemDialog()
+                }
+                else -> { /* уже совпадает с системой */ }
             }
         }
     }
@@ -2530,6 +2866,10 @@ class MainActivity : AppCompatActivity() {
             saveKeepScreenOn(isChecked)
         }
 
+        backgroundMonitorSwitch.setOnCheckedChangeListener { _, isChecked ->
+            saveBackgroundMonitor(isChecked)
+        }
+
         openAppSystemSettingsButton.setOnClickListener {
             hapticIfEnabled(it)
             openApplicationSystemSettings()
@@ -2541,9 +2881,9 @@ class MainActivity : AppCompatActivity() {
     private fun updateSettingsUI() {
         val sharedPrefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val selectedTheme = sharedPrefs.getInt(THEME_KEY, AppCompatDelegate.MODE_NIGHT_NO)
-        val notificationsEnabled = sharedPrefs.getBoolean(NOTIFICATIONS_KEY, false)
         val hapticEnabled = sharedPrefs.getBoolean(HAPTIC_KEY, true)
         val keepScreenOn = sharedPrefs.getBoolean(KEEP_SCREEN_ON_KEY, false)
+        val bgMonitor = sharedPrefs.getBoolean(BG_MONITOR_KEY, true)
 
         // Обновить ToggleGroup в соответствии с сохраненной темой
         when (selectedTheme) {
@@ -2564,13 +2904,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Обновить Switch без срабатывания listener (чтобы не инициировать запрос разрешения при каждом открытии)
-        notificationsSwitch.setOnCheckedChangeListener(null)
-        notificationsSwitch.isChecked = notificationsEnabled
-        setupNotificationSwitchListener()
+        syncNotificationSwitchFromSystem()
         hapticFeedbackSwitch.isChecked = hapticEnabled
         keepScreenOnSwitch.isChecked = keepScreenOn
-        Log.d("Settings", "UI: Переключатель уведомлений обновлен на ${if (notificationsEnabled) "вкл" else "выкл"}")
+        backgroundMonitorSwitch.setOnCheckedChangeListener(null)
+        backgroundMonitorSwitch.isChecked = bgMonitor
+        backgroundMonitorSwitch.setOnCheckedChangeListener { _, isChecked -> saveBackgroundMonitor(isChecked) }
+        Log.d(
+            "Settings",
+            "UI: Уведомления (система) = ${if (systemNotificationsEnabled()) "вкл" else "выкл"}",
+        )
     }
 
     // --- Методы для работы с чатом ---
@@ -2727,6 +3070,21 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         applyKeepScreenOnSetting()
+        if (::notificationsSwitch.isInitialized && currentPageId == R.id.action_settings) {
+            syncNotificationSwitchFromSystem()
+        }
+        if (sessionManager.isLoggedIn && systemNotificationsEnabled() && isBackgroundMonitorEnabled()) {
+            NotificationService.start(this)
+        } else {
+            NotificationService.stop(this)
+        }
+        maybeCheckOrderNotifications(force = true)
+        startNotifPolling()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        stopNotifPolling()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

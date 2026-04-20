@@ -53,4 +53,17 @@
     <color name="ai_cons_block_text">#FCD34D</color>
     <color name="ai_cons_label">#FBBF24</color>
     <color name="ai_details_button_bg">#3730A3</color>
+
+    <color name="guide_accent_violet">#A78BFA</color>
+    <color name="guide_icon_circle_violet">#4C1D95</color>
+    <color name="guide_icon_tint_violet">#EDE9FE</color>
+    <color name="guide_accent_teal">#2DD4BF</color>
+    <color name="guide_icon_circle_teal">#134E4A</color>
+    <color name="guide_icon_tint_teal">#CCFBF1</color>
+    <color name="guide_icon_circle_indigo">#312E81</color>
+    <color name="guide_icon_tint_indigo">#E0E7FF</color>
+    <color name="guide_icon_tint_amber">#FCD34D</color>
+    <color name="guide_accent_rose">#FB7185</color>
+    <color name="guide_icon_circle_rose">#881337</color>
+    <color name="guide_icon_tint_rose">#FFE4E6</color>
 </resources>

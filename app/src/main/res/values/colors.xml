@@ -46,6 +46,20 @@
     <color name="text_on_ai_message_bg">@color/md_on_surface</color>
     <color name="price_highlight">@color/md_secondary</color>
 
+    <!-- Руководство: акценты карточек категорий -->
+    <color name="guide_accent_violet">#7C3AED</color>
+    <color name="guide_icon_circle_violet">#EDE9FE</color>
+    <color name="guide_icon_tint_violet">#5B21B6</color>
+    <color name="guide_accent_teal">#0D9488</color>
+    <color name="guide_icon_circle_teal">#CCFBF1</color>
+    <color name="guide_icon_tint_teal">#115E59</color>
+    <color name="guide_icon_circle_indigo">#E0E7FF</color>
+    <color name="guide_icon_tint_indigo">#312E81</color>
+    <color name="guide_icon_tint_amber">#92400E</color>
+    <color name="guide_accent_rose">#E11D48</color>
+    <color name="guide_icon_circle_rose">#FFE4E6</color>
+    <color name="guide_icon_tint_rose">#9F1239</color>
+
     <color name="bubble_user">@color/md_primary</color>
     <color name="bubble_ai">@color/md_surface_variant</color>
     <color name="hero_gradient_start">#6366F1</color>

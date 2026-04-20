@@ -22,16 +22,33 @@ function generateCode() {
 
 async function sendVerificationEmail(toEmail, code) {
   await transporter.sendMail({
-    from: `"DipProg" <${process.env.BREVO_SENDER_EMAIL || process.env.BREVO_SMTP_LOGIN}>`,
+    from: `"PC Forge" <${process.env.BREVO_SENDER_EMAIL || process.env.BREVO_SMTP_LOGIN}>`,
     to: toEmail,
     subject: 'Код подтверждения регистрации',
     html: `
       <div style="font-family:sans-serif;max-width:400px;margin:0 auto">
         <h2 style="color:#1a73e8">Подтверждение email</h2>
-        <p>Ваш код для завершения регистрации в <b>DipProg</b>:</p>
+        <p>Ваш код для завершения регистрации в <b>PC Forge</b>:</p>
         <div style="font-size:36px;font-weight:bold;letter-spacing:8px;color:#1a73e8;padding:16px 0">${code}</div>
         <p style="color:#666">Код действителен ${CODE_TTL_MINUTES} минут.</p>
         <p style="color:#999;font-size:12px">Если вы не регистрировались — просто проигнорируйте это письмо.</p>
+      </div>
+    `,
+  });
+}
+
+async function sendPasswordResetEmail(toEmail, code) {
+  await transporter.sendMail({
+    from: `"PC Forge" <${process.env.BREVO_SENDER_EMAIL || process.env.BREVO_SMTP_LOGIN}>`,
+    to: toEmail,
+    subject: 'Сброс пароля',
+    html: `
+      <div style="font-family:sans-serif;max-width:400px;margin:0 auto">
+        <h2 style="color:#1a73e8">Сброс пароля</h2>
+        <p>Код для сброса пароля в <b>PC Forge</b>:</p>
+        <div style="font-size:36px;font-weight:bold;letter-spacing:8px;color:#1a73e8;padding:16px 0">${code}</div>
+        <p style="color:#666">Код действителен ${CODE_TTL_MINUTES} минут.</p>
+        <p style="color:#999;font-size:12px">Если это были не вы — просто проигнорируйте письмо.</p>
       </div>
     `,
   });
@@ -174,6 +191,81 @@ function createAuthRouter(pool, { jwtSecret, mapUserResponse, authMiddleware }) 
     }
   });
 
+  router.post('/forgot-password', async (req, res) => {
+    try {
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      if (!email || !email.includes('@')) {
+        return res.status(400).json({ error: 'Укажите корректный email' });
+      }
+
+      const userRes = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+      if (userRes.rows.length > 0) {
+        const code = generateCode();
+        const expiresAt = new Date(Date.now() + CODE_TTL_MINUTES * 60 * 1000);
+        await pool.query(
+          `INSERT INTO password_reset_codes (email, code, expires_at)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (email) DO UPDATE
+             SET code = EXCLUDED.code,
+                 expires_at = EXCLUDED.expires_at,
+                 created_at = CURRENT_TIMESTAMP`,
+          [email, code, expiresAt]
+        );
+        await sendPasswordResetEmail(email, code);
+      }
+
+      // Не раскрываем, существует email или нет
+      res.status(200).json({ message: 'Если аккаунт существует, код отправлен на почту' });
+    } catch (err) {
+      console.error('Forgot password error:', err);
+      res.status(500).json({ error: 'Ошибка отправки кода. Попробуйте позже.' });
+    }
+  });
+
+  router.post('/reset-password', async (req, res) => {
+    try {
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      const code = String(req.body?.code || '').trim();
+      const newPassword = String(req.body?.new_password || '');
+      if (!email || !email.includes('@') || !code) {
+        return res.status(400).json({ error: 'Укажите email и код' });
+      }
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: 'Пароль не менее 6 символов' });
+      }
+
+      const resetRes = await pool.query(
+        'SELECT code, expires_at FROM password_reset_codes WHERE email = $1',
+        [email]
+      );
+      if (resetRes.rows.length === 0) {
+        return res.status(400).json({ error: 'Запрос на сброс не найден. Запросите код снова.' });
+      }
+      const row = resetRes.rows[0];
+      if (new Date() > new Date(row.expires_at)) {
+        await pool.query('DELETE FROM password_reset_codes WHERE email = $1', [email]);
+        return res.status(400).json({ error: 'Код истёк. Запросите новый.' });
+      }
+      if (row.code !== code) {
+        return res.status(400).json({ error: 'Неверный код' });
+      }
+
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+      const updateRes = await pool.query(
+        'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2 RETURNING id',
+        [passwordHash, email]
+      );
+      await pool.query('DELETE FROM password_reset_codes WHERE email = $1', [email]);
+      if (updateRes.rows.length === 0) {
+        return res.status(400).json({ error: 'Пользователь не найден' });
+      }
+      res.status(200).json({ message: 'Пароль обновлён. Теперь можно войти.' });
+    } catch (err) {
+      console.error('Reset password error:', err);
+      res.status(500).json({ error: 'Ошибка сброса пароля. Попробуйте позже.' });
+    }
+  });
+
   router.get('/me', async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
@@ -203,7 +295,12 @@ function createAuthRouter(pool, { jwtSecret, mapUserResponse, authMiddleware }) 
   router.patch('/me', authMiddleware, async (req, res) => {
     try {
       const { name, avatar_url } = req.body || {};
-      const userId = req.user.userId;
+      const rawId = req.user && req.user.userId;
+      const userId = rawId != null && rawId !== '' ? Number(rawId) : NaN;
+      if (!Number.isFinite(userId)) {
+        console.error('PATCH /me: в токене нет userId', req.user);
+        return res.status(401).json({ error: 'Некорректный токен. Выйдите и войдите снова.' });
+      }
       const updates = [];
       const values = [];
       let i = 1;
@@ -222,15 +319,36 @@ function createAuthRouter(pool, { jwtSecret, mapUserResponse, authMiddleware }) 
         return res.status(400).json({ error: 'Укажите name и/или avatar_url' });
       }
       values.push(userId);
-      const result = await pool.query(
-        `UPDATE users SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $${i} RETURNING id, email, name, avatar_url`,
-        values
-      );
+
+      // Пробуем с updated_at (стандартная схема). Если колонки нет — повторяем без неё.
+      let result;
+      try {
+        result = await pool.query(
+          `UPDATE users SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $${i} RETURNING id, email, name, avatar_url`,
+          values
+        );
+      } catch (colErr) {
+        if (colErr.code === '42703') {
+          // column "updated_at" does not exist — старая БД без этой колонки
+          result = await pool.query(
+            `UPDATE users SET ${updates.join(', ')} WHERE id = $${i} RETURNING id, email, name, avatar_url`,
+            values
+          );
+        } else {
+          throw colErr;
+        }
+      }
+
       const user = result.rows[0];
+      if (!user) {
+        console.error('PATCH /me: пользователь не найден, id=', userId);
+        return res.status(404).json({ error: 'Пользователь не найден' });
+      }
       res.json({ user: mapUserResponse(user) });
     } catch (err) {
-      console.error('Patch me error:', err);
-      res.status(500).json({ error: 'Ошибка обновления профиля' });
+      console.error('Patch me error:', err.message, err.code);
+      // Возвращаем detail всегда — без него невозможно диагностировать проблему на Vercel
+      res.status(500).json({ error: 'Ошибка обновления профиля', detail: err.message });
     }
   });
 

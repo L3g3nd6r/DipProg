@@ -9,10 +9,11 @@ import com.example.dipprog.R
 import java.util.Locale
 
 class GuideAdapter(
-    private val allSections: List<GuideSection>,
+    sections: List<GuideSection>,
     private val onVisibleCountChanged: (Int) -> Unit = {},
 ) : RecyclerView.Adapter<GuideAdapter.VH>() {
 
+    private var allSections: List<GuideSection> = sections
     private var visibleSections: List<GuideSection> = allSections
 
     class VH(view: View) : RecyclerView.ViewHolder(view) {
@@ -43,6 +44,13 @@ class GuideAdapter(
                     section.body.lowercase(Locale.getDefault()).contains(q)
             }
         }
+        notifyDataSetChanged()
+        onVisibleCountChanged(visibleSections.size)
+    }
+
+    fun setSections(sections: List<GuideSection>) {
+        allSections = sections
+        visibleSections = sections
         notifyDataSetChanged()
         onVisibleCountChanged(visibleSections.size)
     }

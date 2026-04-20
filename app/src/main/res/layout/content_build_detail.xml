@@ -20,11 +20,12 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/buildDetailBack"
             style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
             android:contentDescription="@string/build_detail_back_cd"
             app:backgroundTint="?attr/colorPrimaryContainer"
             app:icon="@drawable/ic_chevron_left"
+            app:iconSize="26dp"
             app:iconTint="?attr/colorPrimary" />
 
         <TextView
@@ -48,11 +49,12 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/buildDetailDelete"
             style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
             android:contentDescription="@string/build_detail_delete_cd"
             app:backgroundTint="?attr/colorErrorContainer"
             app:icon="@drawable/ic_delete"
+            app:iconSize="24dp"
             app:iconTint="?attr/colorError" />
 
     </LinearLayout>

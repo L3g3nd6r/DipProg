@@ -111,6 +111,22 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Разрешить уведомления" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/backgroundMonitorSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Фоновый мониторинг заказов" />
+
+                <TextView
+                    android:id="@+id/backgroundMonitorHint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Уведомления будут приходить даже при закрытом приложении. В шторке отобразится постоянное уведомление."
+                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

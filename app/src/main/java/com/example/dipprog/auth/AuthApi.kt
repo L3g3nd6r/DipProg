@@ -1,5 +1,6 @@
 package com.example.dipprog.auth
 
+import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import com.example.dipprog.api.ApiBaseUrl
@@ -19,6 +20,7 @@ object AuthApi {
     data class LoginBody(val email: String, val password: String)
     data class VerifyEmailBody(val email: String, val code: String)
     data class RegisterPendingResponse(val message: String)
+    data class MessageResponse(val message: String)
 
     data class User(
         val id: Int,
@@ -37,7 +39,8 @@ object AuthApi {
     data class MeResponse(val user: User)
 
     data class ErrorResponse(
-        @SerializedName("error") val error: String?
+        @SerializedName("error") val error: String?,
+        @SerializedName("detail") val detail: String? = null,
     )
 
     fun register(email: String, password: String, name: String): ApiResult<RegisterPendingResponse> {
@@ -62,6 +65,30 @@ object AuthApi {
         return post("$BASE_URL/api/auth/login", LoginBody(email, password))
     }
 
+    fun forgotPassword(email: String): ApiResult<MessageResponse> {
+        val json = gson.toJson(mapOf("email" to email))
+        val request = Request.Builder()
+            .url("$BASE_URL/api/auth/forgot-password")
+            .post(json.toRequestBody(jsonType))
+            .build()
+        return execute(request) { gson.fromJson(it, MessageResponse::class.java) }
+    }
+
+    fun resetPassword(email: String, code: String, newPassword: String): ApiResult<MessageResponse> {
+        val json = gson.toJson(
+            mapOf(
+                "email" to email,
+                "code" to code,
+                "new_password" to newPassword,
+            )
+        )
+        val request = Request.Builder()
+            .url("$BASE_URL/api/auth/reset-password")
+            .post(json.toRequestBody(jsonType))
+            .build()
+        return execute(request) { gson.fromJson(it, MessageResponse::class.java) }
+    }
+
     fun me(token: String): ApiResult<MeResponse> {
         val request = Request.Builder()
             .url("$BASE_URL/api/auth/me")
@@ -71,12 +98,22 @@ object AuthApi {
         return execute(request) { gson.fromJson(it, MeResponse::class.java) }
     }
 
+    /**
+     * Обновляет профиль.
+     * - Только галерея:  name=null, avatarUrl=data:... → отправляет {"avatar_url":"data:..."}
+     * - Только имя:      name="...", avatarUrl=null   → отправляет {"name":"..."}  (avatar НЕ трогается)
+     * - Имя + URL аватара: оба non-null              → отправляет оба поля
+     * - Очистить аватар: name="...", clearAvatar=true → см. перегрузку ниже (если понадобится)
+     */
     fun updateProfile(token: String?, name: String? = null, avatarUrl: String? = null): ApiResult<MeResponse> {
         if (token.isNullOrBlank()) return ApiResult.Error("Требуется авторизация")
-        val body = mutableMapOf<String, Any?>()
-        name?.let { body["name"] = it }
-        body["avatar_url"] = avatarUrl
-        val json = gson.toJson(body)
+        // Строим тело вручную — включаем только поля, которые нужно изменить
+        val bodyParts = mutableListOf<String>()
+        if (name != null) bodyParts.add("\"name\":${gson.toJson(name)}")
+        if (avatarUrl != null) bodyParts.add("\"avatar_url\":${gson.toJson(avatarUrl)}")
+        if (bodyParts.isEmpty()) return ApiResult.Error("Нет данных для обновления")
+        val json = "{${bodyParts.joinToString(",")}}"
+        Log.d("AuthApi", "updateProfile JSON size=${json.length} chars")
         val request = Request.Builder()
             .url("$BASE_URL/api/auth/me")
             .addHeader("Authorization", "Bearer $token")
@@ -97,17 +134,22 @@ object AuthApi {
     private inline fun <reified T> execute(request: Request, parse: (String) -> T): ApiResult<T> {
         return try {
             val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            val rawBody = response.body?.string() ?: ""
+            Log.d("AuthApi", "HTTP ${response.code} ${request.url}: ${rawBody.take(300)}")
             if (!response.isSuccessful) {
                 val err = try {
-                    gson.fromJson(body, ErrorResponse::class.java)?.error ?: "Ошибка ${response.code}"
+                    val er = gson.fromJson(rawBody, ErrorResponse::class.java)
+                    val base = er?.error ?: "Ошибка ${response.code}"
+                    val d = er?.detail?.trim().takeIf { !it.isNullOrBlank() }
+                    if (d != null) "$base\n($d)" else base
                 } catch (_: Exception) {
-                    "Ошибка ${response.code}"
+                    "HTTP ${response.code}"
                 }
                 return ApiResult.Error(err)
             }
-            ApiResult.Success(parse(body))
+            ApiResult.Success(parse(rawBody))
         } catch (e: Exception) {
+            Log.e("AuthApi", "network error", e)
             ApiResult.Error(e.message ?: "Нет связи с сервером")
         }
     }
