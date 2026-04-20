@@ -211,14 +211,26 @@ function createAuthRouter(pool, { jwtSecret, mapUserResponse, authMiddleware }) 
                  created_at = CURRENT_TIMESTAMP`,
           [email, code, expiresAt]
         );
-        await sendPasswordResetEmail(email, code);
+        try {
+          await sendPasswordResetEmail(email, code);
+        } catch (mailErr) {
+          console.error('Forgot password: ошибка отправки письма:', mailErr && mailErr.message);
+          return res.status(500).json({
+            error: 'Не удалось отправить письмо. Попробуйте позже.',
+            detail: mailErr && mailErr.message,
+          });
+        }
       }
 
       // Не раскрываем, существует email или нет
       res.status(200).json({ message: 'Если аккаунт существует, код отправлен на почту' });
     } catch (err) {
-      console.error('Forgot password error:', err);
-      res.status(500).json({ error: 'Ошибка отправки кода. Попробуйте позже.' });
+      console.error('Forgot password error:', err && err.message, err && err.code);
+      res.status(500).json({
+        error: 'Ошибка отправки кода. Попробуйте позже.',
+        detail: err && err.message,
+        code: err && err.code,
+      });
     }
   });
 
