@@ -238,6 +238,8 @@ class MainActivity : AppCompatActivity() {
     /** Handler для анимации "печатает…" */
     private val typingHandler = Handler(Looper.getMainLooper())
     private var typingRunnable: Runnable? = null
+    /** Флаг ожидания ответа ИИ — блокирует повторную отправку, пока модель не ответит. */
+    private var isAiResponding = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -3012,12 +3014,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sendMessage() {
+        if (isAiResponding) return
         val messageText = messageInputEditText.text.toString().trim()
         if (messageText.isNotEmpty()) {
             addMessageToContainer(messageText, isUser = true)
             apiChatHistory.add(BuildsApi.ChatHistoryMessage("user", messageText))
             messageInputEditText.setText("")
             requestBuildSuggestions(messageText, attachedBuildSummary)
+        }
+    }
+
+    /** Блокирует/разблокирует ввод и кнопку отправки, пока ИИ отвечает (визуально кнопка темнеет). */
+    private fun setAiResponding(busy: Boolean) {
+        isAiResponding = busy
+        if (::sendMessageButton.isInitialized) {
+            sendMessageButton.isEnabled = !busy
+            sendMessageButton.alpha = if (busy) 0.45f else 1f
+        }
+        if (::messageInputEditText.isInitialized) {
+            messageInputEditText.isEnabled = !busy
+        }
+        if (::attachBuildButton.isInitialized) {
+            attachBuildButton.isEnabled = !busy
+            attachBuildButton.alpha = if (busy) 0.6f else 1f
         }
     }
 
@@ -3152,6 +3171,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestBuildSuggestions(userMessage: String, buildSummary: String? = null) {
+        setAiResponding(true)
         // Создаём пузырь "Думаю…" с анимацией
         val loadingWrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -3179,6 +3199,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 stopTypingAnimation()
                 messagesContainer.removeView(loadingWrap)
+                setAiResponding(false)
                 when (result) {
                     is BuildsApi.ApiResult.Success -> {
                         val data = result.data

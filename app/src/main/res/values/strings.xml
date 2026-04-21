@@ -27,7 +27,7 @@
     <string name="ai_suggestion_save_build_with_count">Сохранить сборку · %1$d поз.</string>
     <string name="build_remove_component">Удалить: %1$s</string>
     <string name="menu_guide">Руководство</string>
-    <string name="guide_intro">Выберите тему ниже — откроется подробное руководство. Поиск ищет по названиям категорий и по тексту внутри разделов (например «Ryzen», «БП», «SSD»).</string>
+    <string name="guide_intro">Выберите тему ниже. Поиск ищет по названиям категорий и по тексту внутри разделов.</string>
     <string name="guide_search_hint">Поиск по категориям и тексту…</string>
     <string name="guide_back_to_categories">Назад к категориям</string>
     <string name="guide_empty">Ничего не найдено. Попробуйте другое слово.</string>
