@@ -83,12 +83,14 @@ h1.doc-title { font-size: 14pt; text-align: center; font-weight: bold; margin: 0
 .doc-sub { text-align: center; font-size: 11pt; margin-bottom: 18pt; color: #333; }
 .meta { margin: 0 0 12pt; line-height: 1.55; }
 .preamble { text-align: justify; line-height: 1.55; margin: 0 0 14pt; }
-table.act { border-collapse: collapse; width: 100%; margin: 10pt 0; font-size: 11pt; }
-table.act th { background: #ececec; padding: 8px 10px; border: 1px solid #111; font-weight: bold; text-align: left; }
+table.act { border-collapse: collapse; width: 100%; margin: 10pt 0; font-size: 11pt; table-layout: fixed; }
+table.act th { background: #ececec; padding: 8px 10px; border: 1px solid #111; font-weight: bold; text-align: left; vertical-align: middle; }
+table.act td { vertical-align: top; line-height: 1.35; }
 .total { margin-top: 12pt; font-weight: bold; font-size: 12pt; }
-.signatures { width: 100%; margin-top: 32pt; }
-.sign-cell { width: 50%; vertical-align: bottom; }
-.sign-line { border-top: 1px solid #111; padding-top: 4pt; margin-top: 48pt; }
+.signatures { width: 100%; margin-top: 32pt; border-collapse: collapse; }
+.sign-cell { width: 50%; vertical-align: bottom; padding-right: 10pt; }
+.sign-cell:last-child { padding-right: 0; padding-left: 10pt; }
+.sign-line { border-top: 1px solid #111; padding-top: 4pt; margin-top: 48pt; line-height: 1.45; }
 .fine { font-size: 9pt; color: #444; margin-top: 24pt; line-height: 1.4; }
 </style>
 </head>
@@ -104,8 +106,8 @@ table.act th { background: #ececec; padding: 8px 10px; border: 1px solid #111; f
     <b>Дата подтверждения получения:</b> ${escapeHtml(recv)}
   </p>
   <p class="preamble">
-    Заказчик подтверждает получение перечисленного ниже товара в полном объёме.
-    Внешний вид и комплектность удовлетворяют, претензий к поставщику/исполнителю на момент приёмки заказчик не имеет.
+    Заказчик подтверждает получение перечисленного ниже товара в полном объёме. Внешний вид и комплектность удовлетворяют,
+    претензий к поставщику/исполнителю на момент приёмки заказчик не имеет.
   </p>
   <table class="act">
     <thead>
@@ -121,8 +123,16 @@ table.act th { background: #ececec; padding: 8px 10px; border: 1px solid #111; f
   <p class="total">Итого к оплате по документу: ${total} ₽</p>
   <table class="signatures">
     <tr>
-      <td class="sign-cell"><div class="sign-line">Заказчик (ФИО, подпись)</div></td>
-      <td class="sign-cell"><div class="sign-line">Представитель исполнителя</div></td>
+      <td class="sign-cell">
+        <div class="sign-line">
+          Заказчик: ФИО, подпись, дата
+        </div>
+      </td>
+      <td class="sign-cell">
+        <div class="sign-line">
+          Представитель исполнителя: ФИО, подпись, дата
+        </div>
+      </td>
     </tr>
   </table>
   <p class="fine">
