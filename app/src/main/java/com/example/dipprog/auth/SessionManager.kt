@@ -7,11 +7,8 @@ class SessionManager(context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    /** Токен только в памяти — при «не запоминать» и после перезапуска приложения сбрасывается. */
-    private var ephemeralToken: String? = null
-
     val token: String?
-        get() = ephemeralToken ?: prefs.getString(KEY_TOKEN, null)
+        get() = prefs.getString(KEY_TOKEN, null)
 
     var userName: String?
         get() = prefs.getString(KEY_USER_NAME, null)
@@ -42,26 +39,39 @@ class SessionManager(context: Context) {
 
     /**
      * Сохранение после входа или регистрации.
-     * @param rememberMe если false — токен только до закрытия процесса приложения.
+     * Токен всегда пишется в [SharedPreferences]: на Android процесс часто перезапускается
+     * (свайп с недавних, экономия памяти) — «сессия только в RAM» давала пропадание входа
+     * при сохранённом имени профиля (вид «вошёл», но заказы/сборки просили авторизацию).
+     * Параметр [rememberMe] оставлен для совместимости вызовов (можно использовать позже).
      */
+    @Suppress("UNUSED_PARAMETER")
     fun saveUser(token: String, user: AuthApi.User, rememberMe: Boolean) {
         prefs.edit().putBoolean(KEY_GUEST_MODE, false).apply()
-        if (rememberMe) {
-            ephemeralToken = null
-            prefs.edit().putString(KEY_TOKEN, token).apply()
-        } else {
-            ephemeralToken = token
-            prefs.edit().remove(KEY_TOKEN).apply()
-        }
+        prefs.edit().putString(KEY_TOKEN, token).apply()
         userName = user.name
         userEmail = user.email
         userAvatarUrl = user.avatar_url
         userRole = user.role ?: "customer"
     }
 
+    /**
+     * Если токена нет (старая логика «не запоминать»), а имя почты остались — убираем,
+     * чтобы не казалось, что аккаунт активен.
+     */
+    fun clearOrphanedProfileIfNoToken() {
+        if (isGuestMode) return
+        if (!token.isNullOrBlank()) return
+        if (userName == null && userEmail == null && userAvatarUrl == null) return
+        prefs.edit()
+            .remove(KEY_USER_NAME)
+            .remove(KEY_USER_EMAIL)
+            .remove(KEY_USER_AVATAR)
+            .remove(KEY_USER_ROLE)
+            .apply()
+    }
+
     /** Режим гостя: без токена, основной интерфейс доступен. */
     fun enterGuestMode() {
-        ephemeralToken = null
         prefs.edit()
             .remove(KEY_TOKEN)
             .remove(KEY_USER_NAME)
@@ -73,7 +83,6 @@ class SessionManager(context: Context) {
     }
 
     fun logout() {
-        ephemeralToken = null
         prefs.edit()
             .remove(KEY_TOKEN)
             .remove(KEY_USER_NAME)

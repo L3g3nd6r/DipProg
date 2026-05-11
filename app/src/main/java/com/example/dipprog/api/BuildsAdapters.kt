@@ -16,7 +16,8 @@ fun priceStr(price: Any?): String {
 
 class BuildsAdapter(
     private var items: List<BuildsApi.Build>,
-    private val onBuildClick: (BuildsApi.Build) -> Unit
+    private val onBuildClick: (BuildsApi.Build) -> Unit,
+    private val onBuildLongClick: ((BuildsApi.Build) -> Unit)? = null,
 ) : RecyclerView.Adapter<BuildsAdapter.VH>() {
     class VH(v: View) : RecyclerView.ViewHolder(v) {
         val name: TextView = v.findViewById(R.id.itemBuildName)
@@ -29,6 +30,10 @@ class BuildsAdapter(
         holder.name.text = b.name
         holder.date.text = b.created_at?.take(10) ?: ""
         holder.itemView.setOnClickListener { onBuildClick(b) }
+        holder.itemView.setOnLongClickListener {
+            onBuildLongClick?.invoke(b)
+            onBuildLongClick != null
+        }
     }
     override fun getItemCount(): Int = items.size
     fun setData(list: List<BuildsApi.Build>) {
@@ -68,8 +73,11 @@ class BuildComponentsAdapter(
 class ComponentsAdapter(
     private var items: List<BuildsApi.Component>,
     private val onAddToBuild: (BuildsApi.Component) -> Unit,
-    private val onAddToCart: (BuildsApi.Component) -> Unit
+    private val onAddToCart: (BuildsApi.Component) -> Unit,
 ) : RecyclerView.Adapter<ComponentsAdapter.VH>() {
+    /** false — только «Корзина» (например, просмотр каталога с главной без активной сборки). */
+    private var showAddToBuildButton: Boolean = true
+
     class VH(v: View) : RecyclerView.ViewHolder(v) {
         val name: TextView = v.findViewById(R.id.itemComponentName)
         val price: TextView = v.findViewById(R.id.itemComponentPrice)
@@ -82,12 +90,19 @@ class ComponentsAdapter(
         val c = items[position]
         holder.name.text = c.name
         holder.price.text = priceStr(c.price)
+        holder.addBuild.visibility = if (showAddToBuildButton) View.VISIBLE else View.GONE
         holder.addBuild.setOnClickListener { onAddToBuild(c) }
         holder.addCart.setOnClickListener { onAddToCart(c) }
     }
     override fun getItemCount(): Int = items.size
     fun setData(list: List<BuildsApi.Component>) {
         items = list
+        notifyDataSetChanged()
+    }
+
+    fun setShowAddToBuild(show: Boolean) {
+        if (showAddToBuildButton == show) return
+        showAddToBuildButton = show
         notifyDataSetChanged()
     }
 }

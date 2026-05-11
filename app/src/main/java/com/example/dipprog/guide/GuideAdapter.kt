@@ -3,6 +3,7 @@ package com.example.dipprog.guide
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.example.dipprog.R
@@ -17,6 +18,7 @@ class GuideAdapter(
     private var visibleSections: List<GuideSection> = allSections
 
     class VH(view: View) : RecyclerView.ViewHolder(view) {
+        val image: ImageView = view.findViewById(R.id.guideSectionImage)
         val title: TextView = view.findViewById(R.id.guideSectionTitle)
         val body: TextView = view.findViewById(R.id.guideSectionBody)
     }
@@ -28,8 +30,26 @@ class GuideAdapter(
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val s = visibleSections[position]
+        holder.image.setImageResource(resolveGuideImageRes(s))
         holder.title.text = s.title
         holder.body.text = s.body.trim()
+    }
+
+    private fun resolveGuideImageRes(section: GuideSection): Int {
+        val t = section.title.lowercase(Locale.getDefault())
+        val b = section.body.lowercase(Locale.getDefault())
+        val text = "$t $b"
+        return when {
+            "видеокарт" in text || "gpu" in text || "rtx" in text || "radeon" in text -> R.drawable.ic_ai
+            "процессор" in text || "cpu" in text || "ryzen" in text || "intel" in text -> R.drawable.ic_menu_book
+            "озу" in text || "ddr" in text || "ram" in text || "памят" in text -> R.drawable.ic_cart
+            "накопител" in text || "ssd" in text || "hdd" in text || "nvme" in text -> R.drawable.ic_cart
+            "материнск" in text || "сокет" in text || "чипсет" in text -> R.drawable.ic_build
+            "блок питан" in text || "бп" in text || "охлажден" in text || "кулер" in text -> R.drawable.ic_notifications
+            "монитор" in text || "displayport" in text || "hdmi" in text || "перифери" in text -> R.drawable.ic_person
+            "чеклист" in text || "ошиб" in text || "с чего начать" in text -> R.drawable.ic_home
+            else -> R.drawable.ic_menu_book
+        }
     }
 
     override fun getItemCount(): Int = visibleSections.size

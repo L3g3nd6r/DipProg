@@ -16,6 +16,17 @@
         android:orientation="vertical"
         android:padding="18dp">
 
+        <ImageView
+            android:id="@+id/guideSectionImage"
+            android:layout_width="match_parent"
+            android:layout_height="132dp"
+            android:layout_marginBottom="12dp"
+            android:background="?attr/colorPrimaryContainer"
+            android:contentDescription="@null"
+            android:padding="24dp"
+            android:scaleType="centerInside"
+            android:tint="?attr/colorOnPrimaryContainer" />
+
         <TextView
             android:id="@+id/guideSectionTitle"
             android:layout_width="match_parent"

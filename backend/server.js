@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { isMailConfigured } = require('./services/mail');
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
@@ -10,6 +11,7 @@ const { createRouter: createCartRouter } = require('./routes/cart');
 const { createRouter: createAiRouter } = require('./routes/ai');
 const { createRouter: createStatsRouter } = require('./routes/stats');
 const { createRouter: createOrdersRouter } = require('./routes/orders');
+const { createRouter: createDocumentsRouter } = require('./routes/documents');
 const { createAuthRouter } = require('./routes/auth');
 
 const app = express();
@@ -84,6 +86,25 @@ async function ensureRuntimeSchema() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_order_notifications_user ON order_notifications(user_id)`);
 
+  // Документы пользователя (акт приёма заказа и пр.). content — HTML, открывается как Word документ.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS order_documents (
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      order_id INT NULL REFERENCES orders(id) ON DELETE SET NULL,
+      kind VARCHAR(64) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      file_name VARCHAR(255) NOT NULL,
+      mime_type VARCHAR(128) NOT NULL DEFAULT 'application/msword',
+      content TEXT NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_order_documents_user ON order_documents(user_id)`);
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_order_documents_order_kind ON order_documents(order_id, kind)`
+  );
+
   // ОЗУ и накопители допускают несколько в сборке
   await pool.query(`UPDATE component_categories SET max_per_build = 4 WHERE slug = 'ram' AND max_per_build < 4`);
   await pool.query(`UPDATE component_categories SET max_per_build = 2 WHERE slug = 'storage' AND max_per_build < 2`);
@@ -151,12 +172,70 @@ app.use(cors());
 // По умолчанию express.json() — лимит ~100kb; аватар как data URI в JSON легко больше → 413/ошибка парсера
 app.use(express.json({ limit: '8mb' }));
 
+/**
+ * Публичная страница: мессенджеры открывают обычный https URL,
+ * затем редирект в приложение по кастомной схеме pcforge://
+ */
+function renderShareImportPage(encodedData) {
+  const dataLiteral = JSON.stringify(encodedData);
+  return `<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PC Forge — импорт сборки</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;margin:0;padding:24px;background:#0f172a;color:#e2e8f8;line-height:1.5;}
+.wrap{max-width:480px;margin:40px auto;text-align:center;}
+h1{font-size:20px;margin:0 0 12px;}
+p{color:#94a3b8;font-size:14px;margin:0 0 16px;}
+a.btn{display:inline-block;padding:14px 22px;background:#6366f1;color:#fff;text-decoration:none;border-radius:14px;font-weight:600;}
+.small{font-size:12px;color:#64748b;margin-top:24px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>PC Forge</h1>
+<p>Откройте сборку в приложении.</p>
+<p><a class="btn" id="btn" href="#">Открыть в приложении</a></p>
+<p class="small">Если не открылось автоматически, нажмите кнопку выше (нужно установленное приложение PC Forge).</p>
+</div>
+<script>
+(function(){
+  var data = ${dataLiteral};
+  var u = 'pcforge://build-share/import?data=' + encodeURIComponent(data);
+  var a = document.getElementById('btn');
+  a.href = u;
+  setTimeout(function(){ try { window.location.href = u; } catch(e) {} }, 200);
+})();
+</script>
+</body>
+</html>`;
+}
+
+app.get('/share/import', (req, res) => {
+  const data = String(req.query.data || '').trim();
+  if (!data) {
+    res.status(400).type('text/plain; charset=utf-8').send('Укажите параметр data');
+    return;
+  }
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(renderShareImportPage(data));
+});
+
 // Временный диагностический маршрут — покажет, сколько assembler-email настроено
 app.get('/api/debug-env', (req, res) => {
   res.json({
     assembler_count: ASSEMBLER_EMAILS.length,
     assembler_emails: ASSEMBLER_EMAILS,
     node_env: process.env.NODE_ENV || '(not set)',
+    mail_any_configured: isMailConfigured(),
+    mail_brevo_rest: Boolean(process.env.BREVO_API_KEY),
+    mail_smtp: Boolean(process.env.BREVO_SMTP_LOGIN && process.env.BREVO_SMTP_KEY),
+    mail_resend: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM),
+    mail_sender_configured: Boolean(process.env.BREVO_SENDER_EMAIL),
+    mail_from_preview:
+      process.env.BREVO_SENDER_EMAIL || process.env.BREVO_SMTP_LOGIN || '(не задан)',
   });
 });
 
@@ -167,6 +246,7 @@ app.use('/api/cart', createCartRouter(pool, authMiddleware));
 app.use('/api/ai', createAiRouter(pool));
 app.use('/api/stats', createStatsRouter(pool, authMiddleware));
 app.use('/api/orders', createOrdersRouter(pool, authMiddleware, resolveUserRole));
+app.use('/api/documents', createDocumentsRouter(pool, authMiddleware));
 app.use(
   '/api/auth',
   createAuthRouter(pool, { jwtSecret: JWT_SECRET, mapUserResponse, authMiddleware })
@@ -196,6 +276,21 @@ if (require.main === module) {
         }
         if (!isProd) {
           console.log('Режим разработки: JWT_SECRET по умолчанию (для production задайте JWT_SECRET в .env)');
+        }
+        if (!isMailConfigured()) {
+          console.warn(
+            '[mail] Почта не настроена — задайте BREVO_API_KEY и/или SMTP (см. backend/.env.example)',
+          );
+        } else {
+          const fromAddr = process.env.BREVO_SENDER_EMAIL || process.env.BREVO_SMTP_LOGIN || '(?)';
+          const modes = [
+            process.env.BREVO_API_KEY ? 'Brevo REST API' : null,
+            process.env.RESEND_API_KEY ? 'Resend' : null,
+            process.env.BREVO_SMTP_LOGIN ? 'SMTP' : null,
+          ]
+            .filter(Boolean)
+            .join(' + ');
+          console.log(`[mail] Каналы: ${modes || '—'}; отправитель «От»: ${fromAddr} (verified в Brevo/Resend)`);
         }
       });
     })

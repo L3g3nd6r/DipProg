@@ -1,8 +1,162 @@
 const express = require('express')
 
+function escapeHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function formatRub(n) {
+  const x = Number(n)
+  return Number.isFinite(x)
+    ? x.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '—'
+}
+
+/**
+ * Формирует HTML акта приёма-передачи.
+ * Сохраняется в БД и отдаётся Android-приложению как «.doc» с MIME application/msword —
+ * Word, Pages, LibreOffice, Google Docs и WPS открывают такие файлы как Word-документ.
+ */
+function renderOrderActHtml(order) {
+  let items = order.items_json
+  if (typeof items === 'string') {
+    try {
+      items = JSON.parse(items || '[]')
+    } catch (_) {
+      items = []
+    }
+  }
+  if (!Array.isArray(items)) items = []
+
+  let rows = ''
+  let i = 1
+  for (const it of items) {
+    const qty = Number(it.quantity) || 1
+    const price = Number(it.price) || 0
+    const sum = price * qty
+    const name = escapeHtml(it.name != null ? String(it.name) : 'Позиция')
+    rows += `<tr>
+      <td style="padding:6px 10px;border:1px solid #111;">${i}. ${name}</td>
+      <td style="padding:6px 10px;border:1px solid #111;text-align:center;">${qty}</td>
+      <td style="padding:6px 10px;border:1px solid #111;text-align:right;">${formatRub(price)}</td>
+      <td style="padding:6px 10px;border:1px solid #111;text-align:right;">${formatRub(sum)}</td>
+    </tr>`
+    i += 1
+  }
+
+  const total = formatRub(order.total_rub)
+  const recv = order.received_at
+    ? new Date(order.received_at).toLocaleString('ru-RU')
+    : new Date().toLocaleString('ru-RU')
+  const custName = escapeHtml(String(order.customer_name || '—'))
+  const custEmail = escapeHtml(String(order.customer_email || '—'))
+  const custPhone = escapeHtml(String(order.customer_phone || '—'))
+  const ship = escapeHtml(String(order.shipping_address || '—'))
+  const ordId = escapeHtml(String(order.id))
+
+  // Корневой документ с XML namespace под MS Office — Word подхватывает форматирование,
+  // печать корректно идёт на A4. Файл сохраняется с расширением .doc.
+  return `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40" lang="ru">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="ProgId" content="Word.Document">
+<meta name="Generator" content="Microsoft Word 15">
+<title>Акт заказа ${ordId}</title>
+<!--[if gte mso 9]><xml>
+<w:WordDocument>
+  <w:View>Print</w:View>
+  <w:Zoom>100</w:Zoom>
+  <w:DoNotOptimizeForBrowser/>
+</w:WordDocument>
+</xml><![endif]-->
+<style>
+@page Section1 { size: 21cm 29.7cm; margin: 2cm 1.8cm 2cm 2.5cm; mso-page-orientation: portrait; }
+div.Section1 { page: Section1; }
+body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; color: #000; }
+h1.doc-title { font-size: 14pt; text-align: center; font-weight: bold; margin: 0 0 6pt; }
+.doc-sub { text-align: center; font-size: 11pt; margin-bottom: 18pt; color: #333; }
+.meta { margin: 0 0 12pt; line-height: 1.55; }
+.preamble { text-align: justify; line-height: 1.55; margin: 0 0 14pt; }
+table.act { border-collapse: collapse; width: 100%; margin: 10pt 0; font-size: 11pt; }
+table.act th { background: #ececec; padding: 8px 10px; border: 1px solid #111; font-weight: bold; text-align: left; }
+.total { margin-top: 12pt; font-weight: bold; font-size: 12pt; }
+.signatures { width: 100%; margin-top: 32pt; }
+.sign-cell { width: 50%; vertical-align: bottom; }
+.sign-line { border-top: 1px solid #111; padding-top: 4pt; margin-top: 48pt; }
+.fine { font-size: 9pt; color: #444; margin-top: 24pt; line-height: 1.4; }
+</style>
+</head>
+<body>
+<div class="Section1">
+  <h1 class="doc-title">Акт приёма-передачи товара</h1>
+  <div class="doc-sub">по заказу № ${ordId} от сервиса PC Forge</div>
+  <p class="meta">
+    <b>Заказчик:</b> ${custName}<br/>
+    <b>Контактный телефон:</b> ${custPhone}<br/>
+    <b>Электронная почта:</b> ${custEmail}<br/>
+    <b>Адрес доставки:</b> ${ship}<br/>
+    <b>Дата подтверждения получения:</b> ${escapeHtml(recv)}
+  </p>
+  <p class="preamble">
+    Заказчик подтверждает получение перечисленного ниже товара в полном объёме.
+    Внешний вид и комплектность удовлетворяют, претензий к поставщику/исполнителю на момент приёмки заказчик не имеет.
+  </p>
+  <table class="act">
+    <thead>
+      <tr>
+        <th style="text-align:left;">Наименование</th>
+        <th style="width:18%;text-align:center;">Кол-во</th>
+        <th style="width:20%;text-align:right;">Цена, ₽</th>
+        <th style="width:22%;text-align:right;">Сумма, ₽</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <p class="total">Итого к оплате по документу: ${total} ₽</p>
+  <table class="signatures">
+    <tr>
+      <td class="sign-cell"><div class="sign-line">Заказчик (ФИО, подпись)</div></td>
+      <td class="sign-cell"><div class="sign-line">Представитель исполнителя</div></td>
+    </tr>
+  </table>
+  <p class="fine">
+    Документ сформирован автоматически приложением PC Forge.
+    Может использоваться для личного учёта и предъявления. Юридическую значимость при необходимости оформляют на бумажном носителе по шаблону организации.
+  </p>
+</div>
+</body>
+</html>`
+}
+
 function toPriceNumber(value) {
   const n = Number(value)
   return Number.isFinite(n) ? n : 0
+}
+
+/** Создаёт документ-акт и сохраняет в order_documents. Возвращает строку из БД. */
+async function createReceivedActDocument(pool, order) {
+  const html = renderOrderActHtml(order)
+  const fileName = `act-order-${order.id}.doc`
+  const title = `Акт приёма заказа №${order.id}`
+  const r = await pool.query(
+    `INSERT INTO order_documents (user_id, order_id, kind, title, file_name, mime_type, content)
+     VALUES ($1, $2, 'receipt_act', $3, $4, 'application/msword', $5)
+     ON CONFLICT (order_id, kind) DO UPDATE
+       SET title = EXCLUDED.title,
+           file_name = EXCLUDED.file_name,
+           mime_type = EXCLUDED.mime_type,
+           content = EXCLUDED.content,
+           created_at = CURRENT_TIMESTAMP
+     RETURNING id, user_id, order_id, kind, title, file_name, mime_type, created_at`,
+    [order.user_id, order.id, title, fileName, html]
+  )
+  return r.rows[0]
 }
 
 function createRouter(pool, authMiddleware, resolveUserRole) {
@@ -195,7 +349,27 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
         )
       }
 
-      res.json(row)
+      let documentSaved = false
+      let documentError = null
+      try {
+        const doc = await createReceivedActDocument(pool, row)
+        documentSaved = true
+        await createNotification(
+          userId,
+          'Документ готов',
+          `По заказу #${row.id} сформирован акт приёма. Откройте «Документы» в профиле.`
+        )
+        console.info(`confirm-receipt: документ-акт сохранён id=${doc.id} order=${row.id}`)
+      } catch (docErr) {
+        documentError = docErr && docErr.message ? docErr.message : String(docErr)
+        console.error('confirm-receipt: сохранение акта в БД:', docErr)
+      }
+
+      res.json({
+        ...row,
+        document_saved: documentSaved,
+        document_error: documentError,
+      })
     } catch (err) {
       console.error('POST /api/orders/:id/confirm-receipt', err)
       res.status(500).json({ error: 'Ошибка подтверждения получения' })
@@ -239,4 +413,4 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
   return router
 }
 
-module.exports = { createRouter }
+module.exports = { createRouter, renderOrderActHtml, createReceivedActDocument }

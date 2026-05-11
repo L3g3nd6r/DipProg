@@ -1,18 +1,8 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
+const { sendHtmlEmail } = require('../services/mail');
 const { filterProfanity } = require('../services/profanity');
-
-const transporter = nodemailer.createTransport({
-  host: 'smtp-relay.brevo.com',
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.BREVO_SMTP_LOGIN,
-    pass: process.env.BREVO_SMTP_KEY,
-  },
-});
 
 const CODE_TTL_MINUTES = 10;
 
@@ -21,11 +11,7 @@ function generateCode() {
 }
 
 async function sendVerificationEmail(toEmail, code) {
-  await transporter.sendMail({
-    from: `"PC Forge" <${process.env.BREVO_SENDER_EMAIL || process.env.BREVO_SMTP_LOGIN}>`,
-    to: toEmail,
-    subject: 'Код подтверждения регистрации',
-    html: `
+  const html = `
       <div style="font-family:sans-serif;max-width:400px;margin:0 auto">
         <h2 style="color:#1a73e8">Подтверждение email</h2>
         <p>Ваш код для завершения регистрации в <b>PC Forge</b>:</p>
@@ -33,16 +19,13 @@ async function sendVerificationEmail(toEmail, code) {
         <p style="color:#666">Код действителен ${CODE_TTL_MINUTES} минут.</p>
         <p style="color:#999;font-size:12px">Если вы не регистрировались — просто проигнорируйте это письмо.</p>
       </div>
-    `,
-  });
+    `;
+  const text = `Код подтверждения регистрации PC Forge: ${code}\nДействителен ${CODE_TTL_MINUTES} минут.\nЕсли вы не регистрировались — игнорируйте письмо.`;
+  await sendHtmlEmail(toEmail, 'Код подтверждения регистрации', html, text);
 }
 
 async function sendPasswordResetEmail(toEmail, code) {
-  await transporter.sendMail({
-    from: `"PC Forge" <${process.env.BREVO_SENDER_EMAIL || process.env.BREVO_SMTP_LOGIN}>`,
-    to: toEmail,
-    subject: 'Сброс пароля',
-    html: `
+  const html = `
       <div style="font-family:sans-serif;max-width:400px;margin:0 auto">
         <h2 style="color:#1a73e8">Сброс пароля</h2>
         <p>Код для сброса пароля в <b>PC Forge</b>:</p>
@@ -50,8 +33,9 @@ async function sendPasswordResetEmail(toEmail, code) {
         <p style="color:#666">Код действителен ${CODE_TTL_MINUTES} минут.</p>
         <p style="color:#999;font-size:12px">Если это были не вы — просто проигнорируйте письмо.</p>
       </div>
-    `,
-  });
+    `;
+  const text = `Код сброса пароля PC Forge: ${code}\nДействителен ${CODE_TTL_MINUTES} минут.`;
+  await sendHtmlEmail(toEmail, 'Сброс пароля', html, text);
 }
 
 /**

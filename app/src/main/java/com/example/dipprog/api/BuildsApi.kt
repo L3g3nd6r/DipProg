@@ -90,7 +90,10 @@ object BuildsApi {
         val created_at: String?,
         val updated_at: String?,
         val completed_at: String?,
-        val received_at: String? = null
+        val received_at: String? = null,
+        /** Ответ POST .../confirm-receipt: сохранён ли акт-документ в БД */
+        val document_saved: Boolean? = null,
+        val document_error: String? = null,
     )
     data class OrderNotification(
         val id: Int,

@@ -37,11 +37,14 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.MenuItemCompat
 import com.example.dipprog.R
+import com.example.dipprog.api.ApiBaseUrl
 import com.example.dipprog.api.BuildsAdapter
 import com.example.dipprog.api.BuildsApi
 import com.example.dipprog.api.BuildComponentsAdapter
 import com.example.dipprog.api.CartAdapter
 import com.example.dipprog.api.ComponentsAdapter
+import com.example.dipprog.api.DocumentsApi
+import com.example.dipprog.api.DocumentsAdapter
 import com.example.dipprog.api.OrdersAdapter
 import com.example.dipprog.api.priceStr
 import com.example.dipprog.auth.AuthApi
@@ -89,6 +92,7 @@ import android.text.style.StyleSpan
 import android.text.TextUtils
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Base64
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.ImageButton
@@ -96,6 +100,7 @@ import android.widget.ImageView
 import coil.load
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -109,6 +114,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var ordersPage: View
     private lateinit var profilePage: View
     private lateinit var guidePage: View
+    private lateinit var documentsPage: View
     private lateinit var bottomNavigationView: BottomNavigationView
     private lateinit var authOverlay: FrameLayout
     private lateinit var topAppBar: MaterialToolbar
@@ -136,6 +142,7 @@ class MainActivity : AppCompatActivity() {
     private enum class BuildScreenBehindCart { LIST, DETAIL, PICKER }
     private var screenBehindCart: BuildScreenBehindCart? = null
     private var refreshOrdersCallback: (() -> Unit)? = null
+    private var refreshDocumentsList: (() -> Unit)? = null
     private var lastOrderNotificationId: Int = -1
     private var lastOrderNotificationCheckAt: Long = 0L
 
@@ -228,6 +235,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var messageInputEditText: TextInputEditText
     private lateinit var sendMessageButton: MaterialButton
     private lateinit var attachBuildButton: MaterialButton
+    private lateinit var detachBuildButton: MaterialButton
+    private lateinit var clearChatButton: MaterialButton
+    private lateinit var attachedBuildStatusText: TextView
     private lateinit var messagesScrollView: ScrollView
     /** История текстовых сообщений чата (без карточек подборок) — для восстановления после смены темы */
     private val chatHistory = mutableListOf<Pair<String, Boolean>>()
@@ -252,6 +262,7 @@ class MainActivity : AppCompatActivity() {
         topAppBar = findViewById(R.id.topAppBar)
         authOverlay = findViewById(R.id.authOverlay)
         sessionManager = SessionManager(this)
+        sessionManager.clearOrphanedProfileIfNoToken()
         onBackPressedDispatcher.addCallback(this, authBackCallback)
         onBackPressedDispatcher.addCallback(this, guideDetailBackCallback)
 
@@ -263,6 +274,7 @@ class MainActivity : AppCompatActivity() {
         ordersPage = findViewById(R.id.ordersPage)
         profilePage = findViewById(R.id.profilePage)
         guidePage = findViewById(R.id.guidePage)
+        documentsPage = findViewById(R.id.documentsPage)
         bottomNavigationView = findViewById(R.id.bottomNavigationView)
 
         // Сразу скрываем все страницы, чтобы не было «мерцания» и лишних обращений к неготовым view
@@ -273,6 +285,7 @@ class MainActivity : AppCompatActivity() {
         ordersPage.visibility = View.GONE
         profilePage.visibility = View.GONE
         guidePage.visibility = View.GONE
+        documentsPage.visibility = View.GONE
 
         // --- Инициализация views для настроек ---
         themeToggleGroup = settingsPage.findViewById(R.id.themeToggleGroup)
@@ -300,6 +313,9 @@ class MainActivity : AppCompatActivity() {
         messageInputEditText = aiChatPage.findViewById(R.id.messageInputEditText)
         sendMessageButton = aiChatPage.findViewById(R.id.sendMessageButton)
         attachBuildButton = aiChatPage.findViewById(R.id.attachBuildButton)
+        detachBuildButton = aiChatPage.findViewById(R.id.detachBuildButton)
+        clearChatButton = aiChatPage.findViewById(R.id.clearChatButton)
+        attachedBuildStatusText = aiChatPage.findViewById(R.id.attachedBuildStatusText)
         messagesScrollView = aiChatPage.findViewById(R.id.messagesScrollView)
 
 
@@ -308,6 +324,7 @@ class MainActivity : AppCompatActivity() {
         setupBuildsAndCart()
         setupBuildPageCartUi()
         setupOrdersPage()
+        setupDocumentsPage()
         setupHomePage()
         setupGuidePage()
         setupTopBarMenu()
@@ -361,10 +378,45 @@ class MainActivity : AppCompatActivity() {
                             refreshOrdersCallback?.invoke()
                         }
                     }
-                    else -> {}
+                    is AuthApi.ApiResult.Error -> {
+                        if (isInvalidSessionFromMeError(r.message)) {
+                            performSessionInvalidatedFromServer()
+                        }
+                    }
                 }
             },
         )
+    }
+
+    /** Ответ /api/auth/me при недействительном JWT и т.п. — не путать с обрывом сети. */
+    private fun isInvalidSessionFromMeError(message: String): Boolean {
+        val m = message.lowercase(Locale.ROOT)
+        if (m.contains("связ") || m.contains("network") || m.contains("timeout") ||
+            m.contains("timed out") || m.contains("unreachable") || m.contains("refused") ||
+            m.contains("ssl") || m.contains("certificate") || m.contains("host") ||
+            m.contains("сервер недоступен") || m.contains("нет связи")
+        ) {
+            return false
+        }
+        if (m.contains("401") || m.contains("403")) return true
+        if (m.contains("unauthorized")) return true
+        if (m.contains("требуется авторизация")) return true
+        if (m.contains("пользователь не найден")) return true
+        if (m.contains("некорректный") && m.contains("токен")) return true
+        if (m.contains("неверный") && m.contains("токен")) return true
+        if (m.contains("invalid token") || m.contains("jwt")) return true
+        return false
+    }
+
+    private fun performSessionInvalidatedFromServer() {
+        sessionManager.logout()
+        cancelNotificationWork()
+        clearOrdersTabBadge()
+        updateOrdersTabVisibility()
+        updateProfileUI()
+        refreshHomeBuildsCard?.invoke()
+        refreshOrdersCallback?.invoke()
+        anchoredSnackbar(getString(R.string.session_invalid_snackbar), Snackbar.LENGTH_LONG)
     }
 
     private fun getPageViewForId(id: Int): View = when (id) {
@@ -375,6 +427,7 @@ class MainActivity : AppCompatActivity() {
         R.id.action_profile -> profilePage
         R.id.action_settings -> settingsPage
         R.id.action_guide -> guidePage
+        R.id.documentsPage -> documentsPage
         else -> homePage
     }
 
@@ -414,6 +467,7 @@ class MainActivity : AppCompatActivity() {
             R.id.action_profile -> updateProfileUI()
             R.id.action_settings -> updateSettingsUI()
             R.id.action_guide -> { }
+            R.id.documentsPage -> refreshDocumentsList?.invoke()
         }
         if (id != R.id.navigation_orders) {
             maybeCheckOrderNotifications()
@@ -427,6 +481,7 @@ class MainActivity : AppCompatActivity() {
             R.id.action_guide -> bar.setTitle(R.string.menu_guide)
             R.id.action_profile -> bar.setTitle(R.string.menu_profile)
             R.id.navigation_orders -> bar.setTitle(R.string.menu_orders)
+            R.id.documentsPage -> bar.setTitle(R.string.documents_title)
             else -> bar.setTitle(R.string.app_toolbar_title)
         }
     }
@@ -435,8 +490,15 @@ class MainActivity : AppCompatActivity() {
     private var refreshBuildList: (() -> Unit)? = null
     private var lastBuildDetail: BuildsApi.BuildDetail? = null
     private var refreshHomeBuildsCard: (() -> Unit)? = null
+    private var pendingImportLinkData: String? = null
+    private var lastHandledImportLinkData: String? = null
     /** Запрос с главной — подставляется в поиск каталога при открытии «Сборка». */
     private var pendingPickerSearchQuery: String? = null
+    /**
+     * Каталог открыт «просто посмотреть» (поиск с главной, «к покупкам» из корзины) — без кнопки «В сборку».
+     * Сбрасывается при открытии каталога из экрана сборки.
+     */
+    private var catalogPickerCartOnly: Boolean = false
     private var currentPageId: Int = R.id.navigation_home
     private var openBuildPageWithCategory: ((String?) -> Unit)? = null
     private var createPresetBuildAndOpen: ((String, String) -> Unit)? = null
@@ -446,6 +508,10 @@ class MainActivity : AppCompatActivity() {
         const val BUNDLE_CHAT_IS_USER = "chat_is_user"
         const val BUNDLE_CHAT_SUGGESTIONS = "chat_suggestions"
         const val BUNDLE_API_HISTORY = "api_chat_history"
+        const val SHARE_SCHEME = "pcforge"
+        const val SHARE_HOST = "build-share"
+        const val SHARE_PATH_IMPORT = "/import"
+        const val SHARE_QUERY_DATA = "data"
     }
     private val chatGson = Gson()
 
@@ -485,13 +551,133 @@ class MainActivity : AppCompatActivity() {
         var loadCart: () -> Unit = {}
         var loadBuildsList: () -> Unit = {}
 
-        val buildsAdapter = BuildsAdapter(emptyList()) { build ->
+        fun openBuildFromList(build: BuildsApi.Build) {
             currentBuildId = build.id
             buildListInclude.visibility = View.GONE
             buildDetailInclude.visibility = View.VISIBLE
             syncCartFabBottomMargin()
             loadBuildDetail(build.id)
         }
+        fun renameBuildFromList(build: BuildsApi.Build) {
+            val input = TextInputEditText(this).apply { setText(build.name) }
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Изменить название")
+                .setView(input)
+                .setPositiveButton("Сохранить") { _, _ ->
+                    val newName = input.text?.toString()?.trim().orEmpty()
+                    if (newName.isEmpty()) {
+                        Snackbar.make(buildPage, "Введите название сборки", Snackbar.LENGTH_SHORT).show()
+                        return@setPositiveButton
+                    }
+                    Thread {
+                        val r = BuildsApi.renameBuild(sessionManager.token, build.id, newName)
+                        runOnUiThread {
+                            when (r) {
+                                is BuildsApi.ApiResult.Success -> {
+                                    loadBuildsList()
+                                    refreshHomeBuildsCard?.invoke()
+                                    Snackbar.make(buildPage, "Название изменено", Snackbar.LENGTH_SHORT).show()
+                                }
+                                is BuildsApi.ApiResult.Error -> Snackbar.make(buildPage, r.message, Snackbar.LENGTH_SHORT).show()
+                            }
+                        }
+                    }.start()
+                }
+                .setNegativeButton("Отмена", null)
+                .show()
+        }
+        fun duplicateBuildFromList(build: BuildsApi.Build) {
+            Thread {
+                val detailRes = BuildsApi.buildDetail(sessionManager.token, build.id)
+                if (detailRes is BuildsApi.ApiResult.Error) {
+                    runOnUiThread { Snackbar.make(buildPage, detailRes.message, Snackbar.LENGTH_LONG).show() }
+                    return@Thread
+                }
+                val d = (detailRes as BuildsApi.ApiResult.Success).data
+                val stem = stemBuildNameForCopy(d.name)
+                val created = BuildsApi.createBuild(sessionManager.token, stem)
+                if (created is BuildsApi.ApiResult.Error) {
+                    runOnUiThread { Snackbar.make(buildPage, created.message, Snackbar.LENGTH_LONG).show() }
+                    return@Thread
+                }
+                val bid = (created as BuildsApi.ApiResult.Success).data.id
+                var err: String? = null
+                for (c in d.components ?: emptyList()) {
+                    when (val addR = BuildsApi.addToBuild(sessionManager.token, bid, c.component_id, c.quantity)) {
+                        is BuildsApi.ApiResult.Error -> err = addR.message
+                        else -> {}
+                    }
+                }
+                runOnUiThread {
+                    loadBuildsList()
+                    refreshHomeBuildsCard?.invoke()
+                    if (err != null) {
+                        Snackbar.make(buildPage, "Копия создана, часть позиций не добавилась: $err", Snackbar.LENGTH_LONG).show()
+                    } else {
+                        Snackbar.make(buildPage, "Копия сборки создана", Snackbar.LENGTH_SHORT).show()
+                    }
+                }
+            }.start()
+        }
+        fun deleteBuildFromList(build: BuildsApi.Build) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Удалить сборку?")
+                .setMessage("Сборка «${build.name}» будет удалена без возможности восстановления.")
+                .setPositiveButton("Удалить") { _, _ ->
+                    Thread {
+                        val r = BuildsApi.deleteBuild(sessionManager.token, build.id)
+                        runOnUiThread {
+                            when (r) {
+                                is BuildsApi.ApiResult.Success -> {
+                                    if (currentBuildId == build.id) {
+                                        currentBuildId = null
+                                        lastBuildDetail = null
+                                        buildDetailInclude.visibility = View.GONE
+                                        buildListInclude.visibility = View.VISIBLE
+                                    }
+                                    loadBuildsList()
+                                    refreshHomeBuildsCard?.invoke()
+                                    Snackbar.make(buildPage, "Сборка удалена", Snackbar.LENGTH_SHORT).show()
+                                }
+                                is BuildsApi.ApiResult.Error -> Snackbar.make(buildPage, r.message, Snackbar.LENGTH_SHORT).show()
+                            }
+                        }
+                    }.start()
+                }
+                .setNegativeButton("Отмена", null)
+                .show()
+        }
+        fun shareBuildFromList(build: BuildsApi.Build) {
+            Thread {
+                val detailRes = BuildsApi.buildDetail(sessionManager.token, build.id)
+                runOnUiThread {
+                    when (detailRes) {
+                        is BuildsApi.ApiResult.Success -> shareBuildText(detailRes.data)
+                        is BuildsApi.ApiResult.Error -> Snackbar.make(buildPage, detailRes.message, Snackbar.LENGTH_SHORT).show()
+                    }
+                }
+            }.start()
+        }
+        fun showBuildActionsDialog(build: BuildsApi.Build) {
+            val actions = arrayOf("Открыть", "Изменить название", "Поделиться ссылкой", "Сделать копию", "Удалить")
+            MaterialAlertDialogBuilder(this)
+                .setTitle(build.name)
+                .setItems(actions) { _, which ->
+                    when (which) {
+                        0 -> openBuildFromList(build)
+                        1 -> renameBuildFromList(build)
+                        2 -> shareBuildFromList(build)
+                        3 -> duplicateBuildFromList(build)
+                        4 -> deleteBuildFromList(build)
+                    }
+                }
+                .show()
+        }
+        val buildsAdapter = BuildsAdapter(
+            emptyList(),
+            onBuildClick = { build -> openBuildFromList(build) },
+            onBuildLongClick = { build -> showBuildActionsDialog(build) },
+        )
         val buildComponentsAdapter = BuildComponentsAdapter(
             emptyList(),
             onRemove = { comp ->
@@ -959,6 +1145,7 @@ class MainActivity : AppCompatActivity() {
 
         val componentPickerInclude = buildPage.findViewById<View>(R.id.componentPickerInclude)
         val componentPickerBack = buildPage.findViewById<MaterialButton>(R.id.componentPickerBack)
+        val componentPickerHeader = buildPage.findViewById<View>(R.id.componentPickerHeader)
         val componentPickerSearchInput = buildPage.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.componentPickerSearchInput)
         val componentPickerTabs = buildPage.findViewById<TabLayout>(R.id.componentPickerTabs)
         val componentPickerTabLeft = buildPage.findViewById<ImageButton>(R.id.componentPickerTabLeft)
@@ -1058,6 +1245,8 @@ class MainActivity : AppCompatActivity() {
         })
 
         fun openComponentPickerFull(categorySlug: String? = null) {
+            val cartOnlyThisOpen = catalogPickerCartOnly
+            catalogPickerCartOnly = false
             if (categorySlug != null) pendingPickerSearchQuery = null
             if (sessionManager.token.isNullOrBlank()) {
                 Snackbar.make(buildPage, "Войдите в аккаунт", Snackbar.LENGTH_SHORT).show()
@@ -1097,6 +1286,7 @@ class MainActivity : AppCompatActivity() {
                                 val cid = pickerCategories.getOrNull(pos)?.id
                                 if (cid != null) loadPickerComponents(cid, pending)
                             }
+                            pickerAdapter.setShowAddToBuild(!cartOnlyThisOpen)
                         }
                         is BuildsApi.ApiResult.Error -> Snackbar.make(buildPage, catRes.message, Snackbar.LENGTH_SHORT).show()
                     }
@@ -1136,7 +1326,7 @@ class MainActivity : AppCompatActivity() {
             }.start()
         }
 
-        componentPickerBack.setOnClickListener {
+        fun closeComponentPickerFull() {
             componentPickerInclude.visibility = View.GONE
             if (currentBuildId != null) {
                 buildDetailInclude.visibility = View.VISIBLE
@@ -1148,8 +1338,11 @@ class MainActivity : AppCompatActivity() {
             }
             syncCartFabBottomMargin()
         }
+        componentPickerBack.setOnClickListener { closeComponentPickerFull() }
+        componentPickerHeader.setOnClickListener { closeComponentPickerFull() }
 
         buildDetailAddBtn.setOnClickListener {
+            catalogPickerCartOnly = false
             openComponentPickerFull()
         }
 
@@ -1173,6 +1366,7 @@ class MainActivity : AppCompatActivity() {
             buildPage.findViewById<View>(R.id.buildCartInclude).visibility = View.GONE
             buildPage.findViewById<FloatingActionButton>(R.id.buildCartFab).visibility = View.VISIBLE
             screenBehindCart = null
+            catalogPickerCartOnly = true
             openBuildPageWithCategory?.invoke(null)
             syncCartFabBottomMargin()
         }
@@ -1180,9 +1374,107 @@ class MainActivity : AppCompatActivity() {
         refreshBuildList = loadBuildsList
         loadCartCallback = loadCart
         loadBuildDetailFn = loadBuildDetail
+        handleBuildShareIntent(intent)
 
         buildPage.findViewById<View>(R.id.buildPageContentContainer).post {
             loadBuildsList()
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleBuildShareIntent(intent)
+    }
+
+    private fun extractImportPayload(uri: Uri): String? {
+        val scheme = uri.scheme?.lowercase(Locale.getDefault()) ?: return null
+        if (scheme == SHARE_SCHEME && uri.host == SHARE_HOST) {
+            val p = uri.path ?: ""
+            if (p == SHARE_PATH_IMPORT || p.endsWith("/import")) {
+                return uri.getQueryParameter(SHARE_QUERY_DATA)?.trim()?.takeIf { it.isNotEmpty() }
+            }
+        }
+        if (scheme == "https" || scheme == "http") {
+            val path = uri.path ?: return null
+            if (path == "/share/import" || path.endsWith("/share/import")) {
+                return uri.getQueryParameter("data")?.trim()?.takeIf { it.isNotEmpty() }
+            }
+        }
+        return null
+    }
+
+    private fun handleBuildShareIntent(srcIntent: Intent?) {
+        val dataUri = srcIntent?.data ?: return
+        val encoded = extractImportPayload(dataUri) ?: return
+        if (encoded.isEmpty() || encoded == lastHandledImportLinkData) return
+        if (!sessionManager.isLoggedIn) {
+            pendingImportLinkData = encoded
+            showAuthOverlay(registerMode = false)
+            Snackbar.make(findViewById(R.id.main), "Войдите в аккаунт, чтобы импортировать сборку по ссылке", Snackbar.LENGTH_LONG).show()
+            return
+        }
+        importSharedBuild(encoded)
+    }
+
+    private fun decodeBase64Url(input: String): String? {
+        return try {
+            val normalized = input.replace('-', '+').replace('_', '/')
+            val pad = when (normalized.length % 4) {
+                2 -> "=="
+                3 -> "="
+                else -> ""
+            }
+            String(Base64.decode(normalized + pad, Base64.DEFAULT), Charsets.UTF_8)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun importSharedBuild(encodedData: String) {
+        val json = decodeBase64Url(encodedData)
+        if (json.isNullOrBlank()) {
+            Snackbar.make(findViewById(R.id.main), "Некорректная ссылка сборки", Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val obj = org.json.JSONObject(json)
+            val sourceName = obj.optString("name", "Сборка из ссылки").ifBlank { "Сборка из ссылки" }
+            val arr = obj.optJSONArray("component_ids") ?: org.json.JSONArray()
+            val ids = mutableListOf<Int>()
+            for (i in 0 until arr.length()) {
+                val id = arr.optInt(i, -1)
+                if (id > 0) ids.add(id)
+            }
+            if (ids.isEmpty()) {
+                Snackbar.make(findViewById(R.id.main), "В ссылке нет компонентов для импорта", Snackbar.LENGTH_SHORT).show()
+                return
+            }
+            Thread {
+                val importedName = "Импорт: ${sourceName.take(40)}"
+                val created = BuildsApi.createBuildFromSuggestion(sessionManager.token, importedName, ids)
+                runOnUiThread {
+                    when (created) {
+                        is BuildsApi.ApiResult.Success -> {
+                            lastHandledImportLinkData = encodedData
+                            pendingImportLinkData = null
+                            showPageById(R.id.navigation_build)
+                            currentBuildId = created.data.id
+                            findViewById<View>(R.id.buildListInclude).visibility = View.GONE
+                            findViewById<View>(R.id.buildDetailInclude).visibility = View.VISIBLE
+                            loadBuildDetailFn?.invoke(created.data.id)
+                            refreshBuildList?.invoke()
+                            refreshHomeBuildsCard?.invoke()
+                            Snackbar.make(findViewById(R.id.main), "Сборка импортирована по ссылке", Snackbar.LENGTH_LONG).show()
+                        }
+                        is BuildsApi.ApiResult.Error -> {
+                            Snackbar.make(findViewById(R.id.main), created.message, Snackbar.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }.start()
+        } catch (_: Exception) {
+            Snackbar.make(findViewById(R.id.main), "Некорректная ссылка сборки", Snackbar.LENGTH_SHORT).show()
         }
     }
 
@@ -1632,6 +1924,9 @@ class MainActivity : AppCompatActivity() {
             NavItem(R.drawable.ic_ai, getString(R.string.profile_nav_ai), getString(R.string.profile_nav_ai_sub)) {
                 showPageById(R.id.navigation_ai_chat)
             },
+            NavItem(R.drawable.ic_document, getString(R.string.profile_nav_documents_title), getString(R.string.profile_nav_documents_subtitle)) {
+                showPageById(R.id.documentsPage)
+            },
             NavItem(R.drawable.ic_settings, getString(R.string.profile_nav_settings), getString(R.string.profile_nav_settings_sub)) {
                 showPageById(R.id.action_settings)
             },
@@ -2054,12 +2349,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun shareBuildText(detail: BuildsApi.BuildDetail) {
+        val payload = org.json.JSONObject().apply {
+            put("name", detail.name)
+            val ids = org.json.JSONArray()
+            detail.components?.forEach { c ->
+                repeat(c.quantity.coerceAtLeast(1)) { ids.put(c.component_id) }
+            }
+            put("component_ids", ids)
+        }.toString()
+        val encoded = Base64.encodeToString(payload.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+        val baseWeb = ApiBaseUrl.value.trimEnd('/')
+        val webLink =
+            "$baseWeb/share/import?${SHARE_QUERY_DATA}=${URLEncoder.encode(encoded, Charsets.UTF_8.name())}"
+        val deepLink = "$SHARE_SCHEME://$SHARE_HOST$SHARE_PATH_IMPORT?$SHARE_QUERY_DATA=$encoded"
+
         val lines = mutableListOf<String>()
         lines.add("Сборка «${detail.name}» (PC Forge)")
         detail.components?.forEach { c ->
             lines.add("• ${c.category_name ?: ""} ${c.name} ×${c.quantity} — ${c.price ?: "—"} ₽")
         }
         detail.total_price?.let { lines.add("Итого: ${priceStr(it)}") }
+        lines.add("")
+        lines.add("Импорт в приложение (ссылка для мессенджеров):")
+        lines.add(webLink)
+        lines.add("")
+        lines.add("Если ссылка выше не открывается, альтернатива для приложения:")
+        lines.add(deepLink)
         val text = lines.joinToString("\n")
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
@@ -2255,6 +2570,7 @@ class MainActivity : AppCompatActivity() {
         val detailTitle = guidePage.findViewById<TextView>(R.id.guideDetailTitle)
         val detailSubtitle = guidePage.findViewById<TextView>(R.id.guideDetailSubtitle)
         val backBtn = guidePage.findViewById<MaterialButton>(R.id.guideDetailBackButton)
+        val backCard = guidePage.findViewById<View>(R.id.guideDetailBackCard)
         val empty = guidePage.findViewById<TextView>(R.id.guideEmpty)
         val search = guidePage.findViewById<TextInputEditText>(R.id.guideSearchInput)
 
@@ -2287,6 +2603,10 @@ class MainActivity : AppCompatActivity() {
         categoryRv.adapter = categoryAdapter
 
         backBtn.setOnClickListener {
+            hapticIfEnabled(backBtn)
+            closeGuideCategoryDetail()
+        }
+        backCard.setOnClickListener {
             hapticIfEnabled(backBtn)
             closeGuideCategoryDetail()
         }
@@ -2355,8 +2675,16 @@ class MainActivity : AppCompatActivity() {
                     onMain = { r ->
                         when (r) {
                             is BuildsApi.ApiResult.Success -> {
-                                anchoredSnackbar(getString(R.string.order_snackbar_received, order.id))
+                                val o = r.data
+                                val base = getString(R.string.order_snackbar_received, order.id)
+                                val msg = if (o.document_saved == true) {
+                                    "$base ${getString(R.string.document_act_ready)}"
+                                } else {
+                                    base
+                                }
+                                anchoredSnackbar(msg, Snackbar.LENGTH_LONG)
                                 refreshOrdersCallback?.invoke()
+                                refreshDocumentsList?.invoke()
                             }
                             is BuildsApi.ApiResult.Error -> anchoredSnackbar(r.message)
                         }
@@ -2446,6 +2774,131 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun setupDocumentsPage() {
+        val backBtn = documentsPage.findViewById<MaterialButton>(R.id.documentsBackButton)
+        val swipe = documentsPage.findViewById<SwipeRefreshLayout>(R.id.documentsSwipeRefresh)
+        val recycler = documentsPage.findViewById<RecyclerView>(R.id.documentsRecycler)
+        val emptyState = documentsPage.findViewById<View>(R.id.documentsEmptyState)
+        val emptyText = documentsPage.findViewById<TextView>(R.id.documentsEmptyText)
+
+        backBtn.setOnClickListener { showPageById(R.id.action_profile) }
+
+        swipe.setColorSchemeResources(R.color.md_primary, R.color.md_secondary)
+        recycler.layoutManager = LinearLayoutManager(this)
+        val adapter = DocumentsAdapter(
+            items = emptyList(),
+            onOpen = { doc -> downloadAndOpenDocument(doc) },
+            onDelete = { doc -> confirmDeleteDocument(doc) },
+        )
+        recycler.adapter = adapter
+
+        refreshDocumentsList = refresh@{
+            if (!sessionManager.isLoggedIn) {
+                swipe.isRefreshing = false
+                recycler.visibility = View.INVISIBLE
+                emptyState.visibility = View.VISIBLE
+                emptyText.setText(R.string.documents_empty)
+                return@refresh
+            }
+            swipe.isRefreshing = true
+            Thread {
+                val res = DocumentsApi.list(sessionManager.token)
+                runOnUiThread {
+                    swipe.isRefreshing = false
+                    when (res) {
+                        is DocumentsApi.Result.Success -> {
+                            adapter.setData(res.data)
+                            if (res.data.isEmpty()) {
+                                recycler.visibility = View.INVISIBLE
+                                emptyState.visibility = View.VISIBLE
+                                emptyText.setText(R.string.documents_empty)
+                            } else {
+                                recycler.visibility = View.VISIBLE
+                                emptyState.visibility = View.GONE
+                            }
+                        }
+                        is DocumentsApi.Result.Error -> {
+                            recycler.visibility = View.INVISIBLE
+                            emptyState.visibility = View.VISIBLE
+                            emptyText.text = res.message
+                        }
+                    }
+                }
+            }.start()
+        }
+        swipe.setOnRefreshListener { refreshDocumentsList?.invoke() }
+    }
+
+    private fun downloadAndOpenDocument(doc: DocumentsApi.Document) {
+        anchoredSnackbar(getString(R.string.document_downloading))
+        Thread {
+            val res = DocumentsApi.download(sessionManager.token, doc.id)
+            runOnUiThread {
+                when (res) {
+                    is DocumentsApi.Result.Success -> openDownloadedDocument(res.data, doc)
+                    is DocumentsApi.Result.Error -> anchoredSnackbar(
+                        getString(R.string.document_open_error, res.message),
+                        Snackbar.LENGTH_LONG,
+                    )
+                }
+            }
+        }.start()
+    }
+
+    private fun openDownloadedDocument(file: DocumentsApi.DownloadedFile, doc: DocumentsApi.Document) {
+        try {
+            val dir = java.io.File(cacheDir, "documents").apply { mkdirs() }
+            val safeName = file.fileName.replace(Regex("""[\\/:*?"<>|]+"""), "_")
+            val out = java.io.File(dir, safeName)
+            out.writeBytes(file.bytes)
+
+            val uri: Uri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "${packageName}.fileprovider",
+                out,
+            )
+
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, file.mimeType.ifEmpty { "application/msword" })
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val chooser = Intent.createChooser(viewIntent, doc.title)
+            try {
+                startActivity(chooser)
+            } catch (_: android.content.ActivityNotFoundException) {
+                anchoredSnackbar(getString(R.string.document_no_app), Snackbar.LENGTH_LONG)
+            }
+        } catch (e: Exception) {
+            anchoredSnackbar(
+                getString(R.string.document_open_error, e.message ?: e.javaClass.simpleName),
+                Snackbar.LENGTH_LONG,
+            )
+        }
+    }
+
+    private fun confirmDeleteDocument(doc: DocumentsApi.Document) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.document_delete)
+            .setMessage(getString(R.string.document_delete_confirm, doc.title))
+            .setPositiveButton(R.string.document_delete) { _, _ ->
+                Thread {
+                    val r = DocumentsApi.delete(sessionManager.token, doc.id)
+                    runOnUiThread {
+                        when (r) {
+                            is DocumentsApi.Result.Success -> {
+                                anchoredSnackbar(getString(R.string.document_deleted))
+                                refreshDocumentsList?.invoke()
+                            }
+                            is DocumentsApi.Result.Error -> anchoredSnackbar(r.message)
+                        }
+                    }
+                }.start()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     private fun setupHomePage() {
         // Корень page_home — SwipeRefreshLayout; id homeSwipeRefresh в XML заменяется на homePage из <include android:id="@+id/homePage" />.
         val homeSwipeRefresh = homePage as SwipeRefreshLayout
@@ -2490,6 +2943,7 @@ class MainActivity : AppCompatActivity() {
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 val query = searchInput.text?.toString()?.trim()
                 pendingPickerSearchQuery = query?.takeIf { it.isNotEmpty() }
+                catalogPickerCartOnly = true
                 openBuildPageWithCategory?.invoke(null)
                 if (!query.isNullOrEmpty()) {
                     anchoredSnackbar(getString(R.string.snackbar_catalog_search, query))
@@ -2565,6 +3019,7 @@ class MainActivity : AppCompatActivity() {
         ordersPage.visibility = View.GONE
         profilePage.visibility = View.GONE
         guidePage.visibility = View.GONE
+        documentsPage.visibility = View.GONE
         pageToShow.visibility = View.VISIBLE
     }
 
@@ -2745,6 +3200,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun onAfterLogin() {
         scheduleNotificationWork()
+        pendingImportLinkData?.let {
+            importSharedBuild(it)
+        }
         if (systemNotificationsEnabled()) return
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         if (prefs.getBoolean(PUSH_NOTIF_ASKED_KEY, false)) return
@@ -2937,10 +3395,49 @@ class MainActivity : AppCompatActivity() {
 
         // Прикрепление своей сборки для вопросов ИИ
         attachBuildButton.setOnClickListener { showAttachBuildDialog() }
+        detachBuildButton.setOnClickListener { detachAttachedBuild() }
+        clearChatButton.setOnClickListener { confirmClearAiChat() }
+        refreshChatAttachState()
     }
 
     /** Текст прикреплённой сборки для контекста ИИ (название + список компонентов). null = не прикреплено. */
     private var attachedBuildSummary: String? = null
+
+    private fun refreshChatAttachState() {
+        val attached = attachedBuildSummary != null
+        attachedBuildStatusText.text = if (attached) {
+            getString(R.string.chat_attached_build_status)
+        } else {
+            getString(R.string.chat_no_attached_build_status)
+        }
+        detachBuildButton.visibility = if (attached) View.VISIBLE else View.GONE
+    }
+
+    private fun detachAttachedBuild() {
+        if (attachedBuildSummary == null) return
+        attachedBuildSummary = null
+        refreshChatAttachState()
+        Snackbar.make(aiChatPage, getString(R.string.chat_build_detached), Snackbar.LENGTH_SHORT).show()
+    }
+
+    private fun clearAiChat() {
+        if (isAiResponding) return
+        chatHistory.clear()
+        apiChatHistory.clear()
+        lastSuggestions = emptyList()
+        messagesContainer.removeAllViews()
+        Snackbar.make(aiChatPage, getString(R.string.chat_cleared), Snackbar.LENGTH_SHORT).show()
+    }
+
+    private fun confirmClearAiChat() {
+        if (isAiResponding) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.chat_clear_confirm_title))
+            .setMessage(getString(R.string.chat_clear_confirm_message))
+            .setPositiveButton(getString(R.string.chat_clear)) { _, _ -> clearAiChat() }
+            .setNegativeButton(getString(R.string.common_cancel), null)
+            .show()
+    }
 
     private fun showAttachBuildDialog() {
         if (sessionManager.token.isNullOrBlank()) {
@@ -2952,8 +3449,7 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("Открепить сборку?")
                 .setMessage("Сейчас прикреплена сборка. Открепить её или выбрать другую?")
                 .setPositiveButton("Открепить") { _, _ ->
-                    attachedBuildSummary = null
-                    Snackbar.make(aiChatPage, "Сборка откреплена", Snackbar.LENGTH_SHORT).show()
+                    detachAttachedBuild()
                 }
                 .setNeutralButton("Выбрать другую") { _, _ -> loadBuildsAndShowPicker() }
                 .setNegativeButton("Отмена", null)
@@ -3004,6 +3500,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         d.total_price?.let { lines.add("Итого: $it руб.") }
                         attachedBuildSummary = lines.joinToString("\n")
+                        refreshChatAttachState()
                         addMessageToContainer("Вы прикрепили сборку «${d.name}». Задайте вопрос — ИИ ответит по этой сборке.", isUser = true)
                         Snackbar.make(aiChatPage, "Сборка прикреплена. Задайте вопрос", Snackbar.LENGTH_SHORT).show()
                     }
@@ -3037,6 +3534,14 @@ class MainActivity : AppCompatActivity() {
         if (::attachBuildButton.isInitialized) {
             attachBuildButton.isEnabled = !busy
             attachBuildButton.alpha = if (busy) 0.6f else 1f
+        }
+        if (::detachBuildButton.isInitialized) {
+            detachBuildButton.isEnabled = !busy
+            detachBuildButton.alpha = if (busy) 0.6f else 1f
+        }
+        if (::clearChatButton.isInitialized) {
+            clearChatButton.isEnabled = !busy
+            clearChatButton.alpha = if (busy) 0.6f else 1f
         }
     }
 

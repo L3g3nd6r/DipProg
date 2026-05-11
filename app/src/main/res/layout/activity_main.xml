@@ -40,6 +40,7 @@
         <include layout="@layout/page_orders" android:id="@+id/ordersPage" />
         <include layout="@layout/page_profile" android:id="@+id/profilePage" />
         <include layout="@layout/page_guide" android:id="@+id/guidePage" />
+        <include layout="@layout/page_documents" android:id="@+id/documentsPage" />
     </FrameLayout>
 
     <com.google.android.material.bottomnavigation.BottomNavigationView
