@@ -61,14 +61,6 @@ object BuildsApi {
         val components: List<BuildComponent>?,
         val total_price: Number?
     )
-    data class CartItem(
-        val id: Int?,
-        val component_id: Int,
-        val quantity: Int,
-        val name: String,
-        val price: String?,
-        val category_name: String?
-    )
     data class OrderItem(
         val component_id: Int,
         val name: String,
@@ -95,6 +87,15 @@ object BuildsApi {
         val document_saved: Boolean? = null,
         val document_error: String? = null,
     )
+    data class CartItem(
+        val id: Int?,
+        val component_id: Int,
+        val quantity: Int,
+        val name: String,
+        val price: String?,
+        val category_name: String?
+    )
+
     data class OrderNotification(
         val id: Int,
         val title: String,
@@ -323,6 +324,37 @@ object BuildsApi {
         return getOne(req) { gson.fromJson(it, Order::class.java) }
     }
 
+    /** Отмена заказа сборщиком (статус cancelled); запись остаётся у клиента. */
+    fun cancelOrder(token: String?, orderId: Int): ApiResult<Order> {
+        if (token.isNullOrBlank()) return ApiResult.Error("Требуется авторизация")
+        val req = Request.Builder()
+            .url("$BASE_URL/api/orders/$orderId/cancel")
+            .post("{}".toRequestBody(jsonType))
+            .auth(token)
+            .build()
+        return getOne(req) { gson.fromJson(it, Order::class.java) }
+    }
+
+    /** Полное удаление заказа (только сборщик). POST вместо DELETE — часть хостингов режет DELETE. */
+    fun deleteOrder(token: String?, orderId: Int): ApiResult<Unit> {
+        if (token.isNullOrBlank()) return ApiResult.Error("Требуется авторизация")
+        val req = Request.Builder()
+            .url("$BASE_URL/api/orders/$orderId/delete")
+            .post("{}".toRequestBody(jsonType))
+            .auth(token)
+            .build()
+        return try {
+            val resp = client.newCall(req).execute()
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) {
+                return ApiResult.Error(bodyErrorOrNull(body, resp.code) ?: "Ошибка ${resp.code}")
+            }
+            ApiResult.Success(Unit)
+        } catch (e: Exception) {
+            ApiResult.Error("Нет связи с сервером")
+        }
+    }
+
     fun myOrderNotifications(token: String?): ApiResult<List<OrderNotification>> {
         if (token.isNullOrBlank()) return ApiResult.Error("Требуется авторизация")
         val req = Request.Builder().url("$BASE_URL/api/orders/notifications/my").get().auth(token).build()
@@ -401,7 +433,11 @@ object BuildsApi {
         if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
             return try { gson.fromJson(trimmed, ErrorResp::class.java)?.error } catch (_: Exception) { null }
         }
-        return "Сервер недоступен (код $code). Попробуйте позже."
+        return if (code == 404) {
+            "Эндпоинт не найден (404). Убедитесь, что на сервере задеплоена последняя версия бэкенда и в приложении верный api.base.url."
+        } else {
+            "Сервер недоступен (код $code). Попробуйте позже."
+        }
     }
 
     private fun <T> getList(req: Request, parse: (String) -> List<T>): ApiResult<List<T>> {

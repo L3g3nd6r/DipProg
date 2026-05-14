@@ -269,7 +269,13 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
                 comment, items_json, total_rub, status, created_at, updated_at, completed_at, received_at
          FROM orders
          WHERE user_id = $1
-         ORDER BY created_at DESC`,
+         ORDER BY CASE status
+           WHEN 'new' THEN 0
+           WHEN 'sent' THEN 1
+           WHEN 'received' THEN 2
+           WHEN 'cancelled' THEN 3
+           ELSE 4
+         END, created_at DESC`,
         [userId]
       )
       res.json({ orders: result.rows })
@@ -290,13 +296,48 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
            WHEN 'new' THEN 0
            WHEN 'sent' THEN 1
            WHEN 'received' THEN 2
-           ELSE 3
+           WHEN 'cancelled' THEN 3
+           ELSE 4
          END, created_at DESC`
       )
       res.json({ orders: result.rows })
     } catch (err) {
       console.error('GET /api/orders/assigned', err)
       res.status(500).json({ error: 'Ошибка загрузки заказов' })
+    }
+  })
+
+  router.get('/notifications/my', async (req, res) => {
+    try {
+      const userId = Number(req.user.userId)
+      const result = await pool.query(
+        `SELECT id, title, body, is_read, created_at
+         FROM order_notifications
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT 50`,
+        [userId]
+      )
+      res.json({ notifications: result.rows })
+    } catch (err) {
+      console.error('GET /api/orders/notifications/my', err)
+      res.status(500).json({ error: 'Ошибка загрузки уведомлений' })
+    }
+  })
+
+  router.post('/notifications/read-all', async (req, res) => {
+    try {
+      const userId = Number(req.user.userId)
+      await pool.query(
+        `UPDATE order_notifications
+         SET is_read = true
+         WHERE user_id = $1 AND is_read = false`,
+        [userId]
+      )
+      res.json({ ok: true })
+    } catch (err) {
+      console.error('POST /api/orders/notifications/read-all', err)
+      res.status(500).json({ error: 'Ошибка обновления уведомлений' })
     }
   })
 
@@ -325,6 +366,73 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
       res.status(500).json({ error: 'Ошибка завершения заказа' })
     }
   })
+
+  /** Отмена заказа сборщиком: статус cancelled, запись остаётся у клиента. */
+  router.post('/:id/cancel', async (req, res) => {
+    try {
+      if (!isAssembler(req)) return res.status(403).json({ error: 'Доступ только для сборщика' })
+      const orderId = Number(req.params.id)
+      if (!Number.isFinite(orderId)) return res.status(400).json({ error: 'Некорректный ID заказа' })
+      const result = await pool.query(
+        `UPDATE orders
+         SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND status IN ('new', 'sent')
+         RETURNING id, user_id, customer_name, customer_phone, customer_email, shipping_address,
+                   comment, items_json, total_rub, status, created_at, updated_at, completed_at, received_at`,
+        [orderId]
+      )
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          error: 'Заказ не найден или уже отменён / получен — отмена недоступна',
+        })
+      }
+      const row = result.rows[0]
+      await createNotification(
+        row.user_id,
+        'Заказ отменён',
+        `Заказ #${row.id} отменён сборщиком. Подробности в разделе «Заказы».`
+      )
+      res.json(row)
+    } catch (err) {
+      console.error('POST /api/orders/:id/cancel', err)
+      res.status(500).json({ error: 'Ошибка отмены заказа' })
+    }
+  })
+
+  /** Полное удаление заказа — строка удаляется из БД, исчезает у клиента и у всех сборщиков. */
+  async function deleteOrderById(req, res) {
+    try {
+      if (!isAssembler(req)) return res.status(403).json({ error: 'Доступ только для сборщика' })
+      const orderId = Number(req.params.id)
+      if (!Number.isFinite(orderId)) return res.status(400).json({ error: 'Некорректный ID заказа' })
+      const found = await pool.query(`SELECT id, user_id FROM orders WHERE id = $1`, [orderId])
+      if (found.rows.length === 0) {
+        return res.status(404).json({ error: 'Заказ не найден' })
+      }
+      const customerId = Number(found.rows[0].user_id)
+      await pool.query(`DELETE FROM order_documents WHERE order_id = $1`, [orderId])
+      const del = await pool.query(`DELETE FROM orders WHERE id = $1 RETURNING id`, [orderId])
+      if (del.rows.length === 0) {
+        return res.status(404).json({ error: 'Заказ не найден' })
+      }
+      if (Number.isFinite(customerId)) {
+        await createNotification(
+          customerId,
+          'Заказ удалён',
+          `Заказ #${orderId} удалён из системы исполнителем и больше не отображается в списке.`
+        )
+      }
+      res.json({ ok: true, id: orderId })
+    } catch (err) {
+      console.error('DELETE|POST /api/orders/:id/delete', err)
+      res.status(500).json({ error: 'Ошибка удаления заказа' })
+    }
+  }
+
+  router.delete('/:id', deleteOrderById)
+
+  /** То же, что DELETE /:id — для клиентов/хостингов, где метод DELETE режется. */
+  router.post('/:id/delete', deleteOrderById)
 
   router.post('/:id/confirm-receipt', async (req, res) => {
     try {
@@ -383,40 +491,6 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
     } catch (err) {
       console.error('POST /api/orders/:id/confirm-receipt', err)
       res.status(500).json({ error: 'Ошибка подтверждения получения' })
-    }
-  })
-
-  router.get('/notifications/my', async (req, res) => {
-    try {
-      const userId = Number(req.user.userId)
-      const result = await pool.query(
-        `SELECT id, title, body, is_read, created_at
-         FROM order_notifications
-         WHERE user_id = $1
-         ORDER BY created_at DESC
-         LIMIT 50`,
-        [userId]
-      )
-      res.json({ notifications: result.rows })
-    } catch (err) {
-      console.error('GET /api/orders/notifications/my', err)
-      res.status(500).json({ error: 'Ошибка загрузки уведомлений' })
-    }
-  })
-
-  router.post('/notifications/read-all', async (req, res) => {
-    try {
-      const userId = Number(req.user.userId)
-      await pool.query(
-        `UPDATE order_notifications
-         SET is_read = true
-         WHERE user_id = $1 AND is_read = false`,
-        [userId]
-      )
-      res.json({ ok: true })
-    } catch (err) {
-      console.error('POST /api/orders/notifications/read-all', err)
-      res.status(500).json({ error: 'Ошибка обновления уведомлений' })
     }
   })
 

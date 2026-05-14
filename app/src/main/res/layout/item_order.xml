@@ -60,6 +60,25 @@
             android:visibility="gone" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/orderCancelButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/order_assembler_cancel"
+            android:visibility="gone" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/orderDeleteButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/order_assembler_delete"
+            android:visibility="gone"
+            app:strokeColor="?attr/colorError" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/orderConfirmReceiptButton"
             style="@style/Widget.Material3.Button.TonalButton"
             android:layout_width="match_parent"

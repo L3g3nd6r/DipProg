@@ -104,6 +104,16 @@
     <string name="order_snackbar_received">Заказ #%1$d: получение подтверждено</string>
     <string name="order_btn_confirm_receipt">Подтвердить получение</string>
     <string name="order_assembler_complete">Отправить заказ (в доставку)</string>
+    <string name="order_assembler_cancel">Отменить заказ</string>
+    <string name="order_assembler_delete">Удалить заказ</string>
+    <string name="order_status_cancelled_customer">Статус: отменён сборщиком</string>
+    <string name="order_status_cancelled_assembler">Статус: отменён</string>
+    <string name="order_dialog_cancel_title">Отмена заказа</string>
+    <string name="order_dialog_cancel_message">Заказ #%1$d будет отмечен как отменённый. Клиент увидит это в своём списке заказов. Продолжить?</string>
+    <string name="order_dialog_delete_title">Удаление заказа</string>
+    <string name="order_dialog_delete_message">Заказ #%1$d будет безвозвратно удалён из базы: он исчезнет у клиента и у всех сборщиков. Связанные документы по заказу также будут удалены. Продолжить?</string>
+    <string name="order_snackbar_cancelled">Заказ #%1$d отменён</string>
+    <string name="order_snackbar_deleted">Заказ #%1$d удалён</string>
     <string name="order_item_title">Заказ #%1$d • %2$s</string>
     <string name="order_status_received">Статус: получен (%1$s)</string>
     <string name="order_status_sent_assembler">Статус: отправлен — ждём подтверждения клиента</string>
@@ -131,6 +141,7 @@
     <string name="order_detail_stage_sent_customer">в доставке</string>
     <string name="order_detail_stage_sent_assembler">отправлен клиенту</string>
     <string name="order_detail_stage_received">получен</string>
+    <string name="order_detail_stage_cancelled">отменён сборщиком</string>
     <string name="order_card_cd">Заказ номер %1$d, открыть детали</string>
     <string name="orders_empty_customer">У вас пока нет заказов</string>
     <string name="orders_empty_assembler">Пока нет заказов от клиентов</string>

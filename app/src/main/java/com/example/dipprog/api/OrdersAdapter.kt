@@ -16,6 +16,8 @@ class OrdersAdapter(
     private val isAssemblerProvider: () -> Boolean,
     private val onComplete: (BuildsApi.Order) -> Unit,
     private val onConfirmReceipt: (BuildsApi.Order) -> Unit,
+    private val onCancelOrder: (BuildsApi.Order) -> Unit,
+    private val onDeleteOrder: (BuildsApi.Order) -> Unit,
     private val onOpenDetail: (BuildsApi.Order) -> Unit
 ) : RecyclerView.Adapter<OrdersAdapter.VH>() {
 
@@ -25,6 +27,8 @@ class OrdersAdapter(
         val details: TextView = view.findViewById(R.id.orderDetails)
         val status: TextView = view.findViewById(R.id.orderStatus)
         val completeBtn: MaterialButton = view.findViewById(R.id.orderCompleteButton)
+        val cancelBtn: MaterialButton = view.findViewById(R.id.orderCancelButton)
+        val deleteBtn: MaterialButton = view.findViewById(R.id.orderDeleteButton)
         val confirmBtn: MaterialButton = view.findViewById(R.id.orderConfirmReceiptButton)
     }
 
@@ -51,8 +55,12 @@ class OrdersAdapter(
         val isNew = st == "new"
         val isSent = st == "sent"
         val isReceived = st == "received"
+        val isCancelled = st == "cancelled"
 
         holder.status.text = when {
+            isCancelled ->
+                if (isAsm) holder.itemView.context.getString(R.string.order_status_cancelled_assembler)
+                else holder.itemView.context.getString(R.string.order_status_cancelled_customer)
             isReceived -> {
                 val whenStr = formatDate(item.received_at)
                 holder.itemView.context.getString(R.string.order_status_received, whenStr)
@@ -67,8 +75,12 @@ class OrdersAdapter(
         }
 
         holder.completeBtn.visibility = if (isAsm && isNew) View.VISIBLE else View.GONE
+        holder.cancelBtn.visibility = if (isAsm && (isNew || isSent)) View.VISIBLE else View.GONE
+        holder.deleteBtn.visibility = if (isAsm) View.VISIBLE else View.GONE
         holder.confirmBtn.visibility = if (!isAsm && isSent) View.VISIBLE else View.GONE
         holder.completeBtn.setOnClickListener { onComplete(item) }
+        holder.cancelBtn.setOnClickListener { onCancelOrder(item) }
+        holder.deleteBtn.setOnClickListener { onDeleteOrder(item) }
         holder.confirmBtn.setOnClickListener { onConfirmReceipt(item) }
 
         holder.itemView.contentDescription = holder.itemView.context.getString(R.string.order_card_cd, item.id)

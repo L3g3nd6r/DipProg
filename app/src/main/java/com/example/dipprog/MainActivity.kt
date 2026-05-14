@@ -57,6 +57,7 @@ import com.example.dipprog.util.launchIo
 import android.widget.ArrayAdapter
 import android.widget.Spinner
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import androidx.core.widget.NestedScrollView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.badge.BadgeDrawable
@@ -431,11 +432,59 @@ class MainActivity : AppCompatActivity() {
         else -> homePage
     }
 
-    private fun showPageById(id: Int) {
+    /** Сброс подэкранов при переходе с нижней панели (или повторном нажатии на ту же вкладку). */
+    private fun resetBottomTabToRoot(tabId: Int) {
+        when (tabId) {
+            R.id.navigation_build -> {
+                val buildListInclude = buildPage.findViewById<View>(R.id.buildListInclude)
+                val buildDetailInclude = buildPage.findViewById<View>(R.id.buildDetailInclude)
+                val componentPickerInclude = buildPage.findViewById<View>(R.id.componentPickerInclude)
+                val cartInclude = buildPage.findViewById<View>(R.id.buildCartInclude)
+                val cartFab = buildPage.findViewById<FloatingActionButton>(R.id.buildCartFab)
+                buildListInclude.visibility = View.VISIBLE
+                buildDetailInclude.visibility = View.GONE
+                componentPickerInclude.visibility = View.GONE
+                cartInclude.visibility = View.GONE
+                cartFab.visibility = View.VISIBLE
+                currentBuildId = null
+                lastBuildDetail = null
+                screenBehindCart = null
+                pendingPickerSearchQuery = null
+                catalogPickerCartOnly = false
+                syncCartFabBottomMargin()
+                refreshBuildList?.invoke()
+            }
+            R.id.navigation_home -> {
+                val homeSwipe = homePage as? SwipeRefreshLayout ?: return
+                homeSwipe.isRefreshing = false
+                (homeSwipe.getChildAt(0) as? NestedScrollView)?.scrollTo(0, 0)
+                homePage.findViewById<TextInputEditText>(R.id.homeSearchInput)?.text?.clear()
+            }
+            R.id.navigation_orders -> {
+                ordersPage.findViewById<SwipeRefreshLayout>(R.id.ordersSwipeRefresh)?.isRefreshing = false
+                ordersPage.findViewById<RecyclerView>(R.id.ordersRecycler)?.scrollToPosition(0)
+            }
+            R.id.navigation_ai_chat -> {
+                scrollToBottomOfMessages()
+            }
+            else -> { }
+        }
+    }
+
+    private fun showPageById(id: Int, resetTabToRoot: Boolean = false) {
         if (id != R.id.action_guide) {
             val detailPanel = guidePage.findViewById<View>(R.id.guideDetailPanel)
             if (detailPanel.visibility == View.VISIBLE) {
                 closeGuideCategoryDetail()
+            }
+        }
+        if (resetTabToRoot) {
+            when (id) {
+                R.id.navigation_home,
+                R.id.navigation_build,
+                R.id.navigation_ai_chat,
+                R.id.navigation_orders -> resetBottomTabToRoot(id)
+                else -> { }
             }
         }
         currentPageId = id
@@ -2405,6 +2454,7 @@ class MainActivity : AppCompatActivity() {
         val st = order.status?.lowercase(Locale.ROOT) ?: ""
         return when {
             st == "received" -> getString(R.string.order_detail_stage_received)
+            st == "cancelled" -> getString(R.string.order_detail_stage_cancelled)
             st == "sent" ->
                 if (isAssembler) getString(R.string.order_detail_stage_sent_assembler)
                 else getString(R.string.order_detail_stage_sent_customer)
@@ -2641,6 +2691,53 @@ class MainActivity : AppCompatActivity() {
         empty.visibility = if (categoryAdapter.itemCount == 0) View.VISIBLE else View.GONE
     }
 
+    private fun confirmCancelOrderAsAssembler(order: BuildsApi.Order) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.order_dialog_cancel_title)
+            .setMessage(getString(R.string.order_dialog_cancel_message, order.id))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.order_assembler_cancel) { _, _ ->
+                launchIo(
+                    work = { BuildsApi.cancelOrder(sessionManager.token, order.id) },
+                    onMain = { r ->
+                        when (r) {
+                            is BuildsApi.ApiResult.Success -> {
+                                anchoredSnackbar(getString(R.string.order_snackbar_cancelled, order.id))
+                                refreshOrdersCallback?.invoke()
+                                maybeCheckOrderNotifications(force = true)
+                            }
+                            is BuildsApi.ApiResult.Error -> anchoredSnackbar(r.message, Snackbar.LENGTH_LONG)
+                        }
+                    },
+                )
+            }
+            .show()
+    }
+
+    private fun confirmDeleteOrderAsAssembler(order: BuildsApi.Order) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.order_dialog_delete_title)
+            .setMessage(getString(R.string.order_dialog_delete_message, order.id))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.order_assembler_delete) { _, _ ->
+                launchIo(
+                    work = { BuildsApi.deleteOrder(sessionManager.token, order.id) },
+                    onMain = { r ->
+                        when (r) {
+                            is BuildsApi.ApiResult.Success -> {
+                                anchoredSnackbar(getString(R.string.order_snackbar_deleted, order.id))
+                                refreshOrdersCallback?.invoke()
+                                refreshDocumentsList?.invoke()
+                                maybeCheckOrderNotifications(force = true)
+                            }
+                            is BuildsApi.ApiResult.Error -> anchoredSnackbar(r.message, Snackbar.LENGTH_LONG)
+                        }
+                    },
+                )
+            }
+            .show()
+    }
+
     private fun setupOrdersPage() {
         val swipe = ordersPage.findViewById<SwipeRefreshLayout>(R.id.ordersSwipeRefresh)
         val recycler = ordersPage.findViewById<RecyclerView>(R.id.ordersRecycler)
@@ -2691,6 +2788,8 @@ class MainActivity : AppCompatActivity() {
                     },
                 )
             },
+            { order -> confirmCancelOrderAsAssembler(order) },
+            { order -> confirmDeleteOrderAsAssembler(order) },
             { order -> showOrderDetailDialog(order) },
         )
         recycler.adapter = adapter
@@ -2987,23 +3086,26 @@ class MainActivity : AppCompatActivity() {
     private fun setupBottomNavigation() {
         bottomNavigationView.setOnItemSelectedListener { menuItem ->
             // Не вызывать showPageById повторно при программной установке selectedItemId (иначе рекурсия и падение)
-            if (currentPageId == menuItem.itemId) return@setOnItemSelectedListener true
+            if (currentPageId == menuItem.itemId) {
+                resetBottomTabToRoot(menuItem.itemId)
+                return@setOnItemSelectedListener true
+            }
             hapticIfEnabled(bottomNavigationView)
             when (menuItem.itemId) {
                 R.id.navigation_home -> {
-                    showPageById(R.id.navigation_home)
+                    showPageById(R.id.navigation_home, resetTabToRoot = true)
                     true
                 }
                 R.id.navigation_build -> {
-                    showPageById(R.id.navigation_build)
+                    showPageById(R.id.navigation_build, resetTabToRoot = true)
                     true
                 }
                 R.id.navigation_ai_chat -> {
-                    showPageById(R.id.navigation_ai_chat)
+                    showPageById(R.id.navigation_ai_chat, resetTabToRoot = true)
                     true
                 }
                 R.id.navigation_orders -> {
-                    showPageById(R.id.navigation_orders)
+                    showPageById(R.id.navigation_orders, resetTabToRoot = true)
                     true
                 }
                 else -> false
