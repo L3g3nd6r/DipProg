@@ -63,6 +63,23 @@ function renderOrderActHtml(order) {
     i += 1
   }
 
+  const deliveryType = String(order.delivery_type || 'pickup').trim().toLowerCase()
+  const deliveryFee = Number(order.delivery_fee)
+  const showDeliveryInAct =
+    deliveryType === 'delivery' && Number.isFinite(deliveryFee) && deliveryFee > 0
+  if (showDeliveryInAct) {
+    const deliveryTitle = order.pickup_point_name
+      ? `Доставка до точки выдачи (${escapeHtml(String(order.pickup_point_name))})`
+      : 'Доставка до точки выдачи'
+    rows += `<tr>
+      <td style="padding:6px 10px;border:1px solid #111;">${i}. ${deliveryTitle}</td>
+      <td style="padding:6px 10px;border:1px solid #111;text-align:center;">1</td>
+      <td style="padding:6px 10px;border:1px solid #111;text-align:right;">${formatRub(deliveryFee)}</td>
+      <td style="padding:6px 10px;border:1px solid #111;text-align:right;">${formatRub(deliveryFee)}</td>
+    </tr>`
+    i += 1
+  }
+
   const total = formatRub(order.total_rub)
   const recv = order.received_at
     ? new Date(order.received_at).toLocaleString('ru-RU')
