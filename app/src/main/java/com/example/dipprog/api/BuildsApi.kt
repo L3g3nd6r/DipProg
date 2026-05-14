@@ -83,9 +83,41 @@ object BuildsApi {
         val updated_at: String?,
         val completed_at: String?,
         val received_at: String? = null,
+        /** "pickup" / "delivery"; пустое для старых заказов трактуем как pickup. */
+        val delivery_type: String? = null,
+        val pickup_point_id: String? = null,
+        val pickup_point_name: String? = null,
+        val pickup_point_address: String? = null,
+        val pickup_point_city: String? = null,
+        val pickup_point_lat: Double? = null,
+        val pickup_point_lng: Double? = null,
+        val delivery_distance_km: Number? = null,
+        val delivery_fee: Number? = null,
         /** Ответ POST .../confirm-receipt: сохранён ли акт-документ в БД */
         val document_saved: Boolean? = null,
         val document_error: String? = null,
+    )
+
+    /** Точка выдачи (пункт «Почты России» в нашем тестовом наборе). */
+    data class PickupPoint(
+        val id: String,
+        val name: String,
+        val address: String,
+        val city: String,
+        val lat: Double,
+        val lng: Double,
+    )
+
+    data class AssemblerBase(val city: String, val lat: Double, val lng: Double)
+    data class PickupPricing(
+        @SerializedName("same_city_fee_rub") val sameCityFee: Int,
+        @SerializedName("per_10km_rub") val per10kmFee: Int,
+    )
+
+    data class PickupPointsResponse(
+        val points: List<PickupPoint>,
+        @SerializedName("assembler_base") val assemblerBase: AssemblerBase,
+        val pricing: PickupPricing,
     )
     data class CartItem(
         val id: Int?,
@@ -276,20 +308,30 @@ object BuildsApi {
         customerPhone: String,
         customerEmail: String,
         shippingAddress: String,
-        comment: String? = null
+        comment: String? = null,
+        deliveryType: String = "pickup",
+        pickupPointId: String? = null,
     ): ApiResult<Order> {
         if (token.isNullOrBlank()) return ApiResult.Error("Требуется авторизация")
-        val body = gson.toJson(
-            mapOf(
-                "customer_name" to customerName,
-                "customer_phone" to customerPhone,
-                "customer_email" to customerEmail,
-                "shipping_address" to shippingAddress,
-                "comment" to comment
-            )
+        val payload = mutableMapOf<String, Any?>(
+            "customer_name" to customerName,
+            "customer_phone" to customerPhone,
+            "customer_email" to customerEmail,
+            "shipping_address" to shippingAddress,
+            "comment" to comment,
+            "delivery_type" to deliveryType,
         )
+        if (!pickupPointId.isNullOrBlank()) payload["pickup_point_id"] = pickupPointId
+        val body = gson.toJson(payload)
         val req = Request.Builder().url("$BASE_URL/api/orders").post(body.toRequestBody(jsonType)).auth(token).build()
         return getOne(req) { gson.fromJson(it, Order::class.java) }
+    }
+
+    /** Справочник точек выдачи + базовая точка сборщика и тарифы. */
+    fun pickupPoints(token: String?): ApiResult<PickupPointsResponse> {
+        if (token.isNullOrBlank()) return ApiResult.Error("Требуется авторизация")
+        val req = Request.Builder().url("$BASE_URL/api/orders/pickup-points").get().auth(token).build()
+        return getOne(req) { gson.fromJson(it, PickupPointsResponse::class.java) }
     }
 
     fun myOrders(token: String?): ApiResult<List<Order>> {

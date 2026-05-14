@@ -74,6 +74,17 @@ async function ensureRuntimeSchema() {
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS received_at TIMESTAMP WITH TIME ZONE NULL`
   );
 
+  // Доставка / самовывоз: способ получения и снимок выбранной точки выдачи.
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_type VARCHAR(16) NOT NULL DEFAULT 'pickup'`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_id VARCHAR(64) NULL`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_name VARCHAR(255) NULL`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_address TEXT NULL`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_city VARCHAR(128) NULL`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_lat DOUBLE PRECISION NULL`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_lng DOUBLE PRECISION NULL`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_distance_km NUMERIC(8,2) NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_fee NUMERIC(10,2) NOT NULL DEFAULT 0`);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS order_notifications (
       id SERIAL PRIMARY KEY,

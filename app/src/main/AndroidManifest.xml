@@ -3,6 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
@@ -20,6 +21,12 @@
         android:theme="@style/Theme.DipProj"
         tools:targetApi="31"
         tools:replace="android:allowBackup,android:label">
+        <activity
+            android:name="com.example.dipprog.orders.PickupPointMapActivity"
+            android:exported="false"
+            android:label="@string/pickup_map_title"
+            android:windowSoftInputMode="adjustResize" />
+
         <activity
             android:name="com.example.dipprog.MainActivity"
             android:exported="true"

@@ -48,7 +48,14 @@ class OrdersAdapter(
             priceStr(item.total_rub)
         )
         holder.subtitle.text = "${item.customer_name} • ${item.customer_phone} • $date"
-        holder.details.text = "${item.shipping_address}${if (!item.comment.isNullOrBlank()) "\nКомментарий: ${item.comment}" else ""}"
+        val deliveryLine = if (item.delivery_type.equals("delivery", ignoreCase = true)) {
+            val fee = item.delivery_fee?.let { " · доставка ${priceStr(it)}" }.orEmpty()
+            "Доставка: ${item.pickup_point_address ?: item.shipping_address}$fee"
+        } else {
+            "Самовывоз"
+        }
+        val commentLine = if (!item.comment.isNullOrBlank()) "\nКомментарий: ${item.comment}" else ""
+        holder.details.text = "$deliveryLine$commentLine"
 
         val isAsm = isAssemblerProvider()
         val st = item.status?.lowercase(Locale.ROOT) ?: ""

@@ -30,6 +30,7 @@ import android.view.MenuItem
 import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
@@ -168,6 +169,34 @@ class MainActivity : AppCompatActivity() {
             } else {
                 showNotifOnboardingHint()
             }
+        }
+
+    /** Колбэк, в который активити карты вернёт выбранную точку (или null, если отмена). */
+    private var onPickupPointPicked: ((com.example.dipprog.orders.PickedPickupPoint?) -> Unit)? = null
+    private val pickupPointLauncher =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
+            val cb = onPickupPointPicked
+            onPickupPointPicked = null
+            if (cb == null) return@registerForActivityResult
+            if (result.resultCode != RESULT_OK || result.data == null) {
+                cb(null)
+                return@registerForActivityResult
+            }
+            val data = result.data!!
+            val id = data.getStringExtra(com.example.dipprog.orders.PickupPointMapActivity.EXTRA_RESULT_ID)
+            if (id.isNullOrBlank()) { cb(null); return@registerForActivityResult }
+            cb(
+                com.example.dipprog.orders.PickedPickupPoint(
+                    id = id,
+                    name = data.getStringExtra(com.example.dipprog.orders.PickupPointMapActivity.EXTRA_RESULT_NAME).orEmpty(),
+                    address = data.getStringExtra(com.example.dipprog.orders.PickupPointMapActivity.EXTRA_RESULT_ADDRESS).orEmpty(),
+                    city = data.getStringExtra(com.example.dipprog.orders.PickupPointMapActivity.EXTRA_RESULT_CITY).orEmpty(),
+                    lat = data.getDoubleExtra(com.example.dipprog.orders.PickupPointMapActivity.EXTRA_RESULT_LAT, 0.0),
+                    lng = data.getDoubleExtra(com.example.dipprog.orders.PickupPointMapActivity.EXTRA_RESULT_LNG, 0.0),
+                    fee = data.getIntExtra(com.example.dipprog.orders.PickupPointMapActivity.EXTRA_RESULT_FEE, 0),
+                    distanceKm = data.getDoubleExtra(com.example.dipprog.orders.PickupPointMapActivity.EXTRA_RESULT_DISTANCE, 0.0),
+                )
+            )
         }
 
     private var onGalleryAvatarPicked: ((String) -> Unit)? = null
@@ -963,43 +992,13 @@ class MainActivity : AppCompatActivity() {
                 Snackbar.make(buildPage, "Корзина пуста", Snackbar.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            val v = LayoutInflater.from(this).inflate(R.layout.dialog_checkout_order, null)
-            val nameInput = v.findViewById<TextInputEditText>(R.id.checkoutName)
-            val phoneInput = v.findViewById<TextInputEditText>(R.id.checkoutPhone)
-            val emailInput = v.findViewById<TextInputEditText>(R.id.checkoutEmail)
-            val addressInput = v.findViewById<TextInputEditText>(R.id.checkoutAddress)
-            val commentInput = v.findViewById<TextInputEditText>(R.id.checkoutComment)
-            nameInput.setText(sessionManager.userName ?: "")
-            emailInput.setText(sessionManager.userEmail ?: "")
-            MaterialAlertDialogBuilder(this)
-                .setTitle(getString(R.string.checkout_title))
-                .setView(v)
-                .setPositiveButton("Оформить") { _, _ ->
-                    val n = nameInput.text?.toString()?.trim().orEmpty()
-                    val p = phoneInput.text?.toString()?.trim().orEmpty()
-                    val e = emailInput.text?.toString()?.trim().orEmpty()
-                    val a = addressInput.text?.toString()?.trim().orEmpty()
-                    val c = commentInput.text?.toString()?.trim()?.takeIf { it.isNotBlank() }
-                    if (n.isBlank() || p.isBlank() || e.isBlank() || a.isBlank()) {
-                        Snackbar.make(buildPage, "Заполните обязательные поля", Snackbar.LENGTH_SHORT).show()
-                        return@setPositiveButton
-                    }
-                    Thread {
-                        val r = BuildsApi.createOrder(sessionManager.token, n, p, e, a, c)
-                        runOnUiThread {
-                            when (r) {
-                                is BuildsApi.ApiResult.Success -> {
-                                    Snackbar.make(buildPage, "Заказ #${r.data.id} оформлен", Snackbar.LENGTH_LONG).show()
-                                    loadCart()
-                                    maybeCheckOrderNotifications(force = true)
-                                }
-                                is BuildsApi.ApiResult.Error -> Snackbar.make(buildPage, r.message, Snackbar.LENGTH_SHORT).show()
-                            }
-                        }
-                    }.start()
-                }
-                .setNegativeButton("Отмена", null)
-                .show()
+            showCheckoutDialog(
+                cartItems = currentCartItems,
+                onOrderCreated = {
+                    loadCart()
+                    maybeCheckOrderNotifications(force = true)
+                },
+            )
         }
 
         fun showCreateBuildDialogAndCreate() {
@@ -2465,6 +2464,134 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Полный сценарий чекаута: радио «Самовывоз / Доставка», выбор точки на карте,
+     * подсчёт итоговой суммы (товары + доставка) и отправка `POST /api/orders`.
+     */
+    private fun showCheckoutDialog(
+        cartItems: List<BuildsApi.CartItem>,
+        onOrderCreated: () -> Unit,
+    ) {
+        val v = LayoutInflater.from(this).inflate(R.layout.dialog_checkout_order, null)
+        val nameInput = v.findViewById<TextInputEditText>(R.id.checkoutName)
+        val phoneInput = v.findViewById<TextInputEditText>(R.id.checkoutPhone)
+        val emailInput = v.findViewById<TextInputEditText>(R.id.checkoutEmail)
+        val commentInput = v.findViewById<TextInputEditText>(R.id.checkoutComment)
+        val group = v.findViewById<RadioGroup>(R.id.checkoutDeliveryGroup)
+        val pickupCard = v.findViewById<View>(R.id.checkoutPickupCard)
+        val pickupNameTv = v.findViewById<TextView>(R.id.checkoutPickupName)
+        val pickupAddressTv = v.findViewById<TextView>(R.id.checkoutPickupAddress)
+        val pickupFeeTv = v.findViewById<TextView>(R.id.checkoutPickupFee)
+        val pickPointBtn = v.findViewById<MaterialButton>(R.id.checkoutPickPointButton)
+        val itemsTotalTv = v.findViewById<TextView>(R.id.checkoutItemsTotal)
+        val deliveryTotalTv = v.findViewById<TextView>(R.id.checkoutDeliveryTotal)
+        val grandTotalTv = v.findViewById<TextView>(R.id.checkoutGrandTotal)
+
+        nameInput.setText(sessionManager.userName ?: "")
+        emailInput.setText(sessionManager.userEmail ?: "")
+
+        val itemsTotal: Double = cartItems.sumOf { ci ->
+            val unit = ci.price?.replace(",", ".")?.toDoubleOrNull() ?: 0.0
+            unit * ci.quantity
+        }
+
+        var picked: com.example.dipprog.orders.PickedPickupPoint? = null
+
+        fun refreshTotals() {
+            val isDelivery = group.checkedRadioButtonId == R.id.checkoutDeliveryCourier
+            pickupCard.visibility = if (isDelivery) View.VISIBLE else View.GONE
+            val deliveryFee = if (isDelivery) picked?.fee ?: 0 else 0
+            itemsTotalTv.text = getString(R.string.checkout_items_total, priceStr(itemsTotal))
+            deliveryTotalTv.text = if (isDelivery) {
+                if (picked != null) getString(R.string.checkout_delivery_fee, deliveryFee)
+                else getString(R.string.checkout_need_pick_point)
+            } else {
+                getString(R.string.checkout_delivery_free)
+            }
+            grandTotalTv.text = getString(R.string.checkout_grand_total, priceStr(itemsTotal + deliveryFee))
+
+            if (isDelivery && picked != null) {
+                pickupNameTv.text = picked!!.name
+                pickupAddressTv.visibility = View.VISIBLE
+                pickupAddressTv.text = picked!!.address
+                pickupFeeTv.visibility = View.VISIBLE
+                pickupFeeTv.text = if (picked!!.distanceKm <= 0.0) {
+                    getString(R.string.pickup_map_fee_same_city, picked!!.fee)
+                } else {
+                    getString(R.string.pickup_map_fee_other_city, picked!!.distanceKm, picked!!.fee)
+                }
+                pickPointBtn.setText(R.string.checkout_change_point)
+            } else {
+                pickupNameTv.setText(R.string.checkout_point_not_chosen)
+                pickupAddressTv.visibility = View.GONE
+                pickupFeeTv.visibility = View.GONE
+                pickPointBtn.setText(R.string.checkout_pick_point)
+            }
+        }
+
+        pickPointBtn.setOnClickListener {
+            onPickupPointPicked = { result ->
+                if (result != null) {
+                    picked = result
+                    refreshTotals()
+                }
+            }
+            pickupPointLauncher.launch(
+                com.example.dipprog.orders.PickupPointMapActivity.createIntent(this, picked?.id)
+            )
+        }
+
+        group.setOnCheckedChangeListener { _, _ -> refreshTotals() }
+        refreshTotals()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.checkout_title))
+            .setView(v)
+            .setPositiveButton("Оформить", null)
+            .setNegativeButton("Отмена", null)
+            .create()
+            .also { dlg ->
+                dlg.setOnShowListener {
+                    dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val n = nameInput.text?.toString()?.trim().orEmpty()
+                        val p = phoneInput.text?.toString()?.trim().orEmpty()
+                        val e = emailInput.text?.toString()?.trim().orEmpty()
+                        val c = commentInput.text?.toString()?.trim()?.takeIf { it.isNotBlank() }
+                        if (n.isBlank() || p.isBlank() || e.isBlank()) {
+                            Snackbar.make(buildPage, "Заполните имя, телефон и email", Snackbar.LENGTH_SHORT).show()
+                            return@setOnClickListener
+                        }
+                        val isDelivery = group.checkedRadioButtonId == R.id.checkoutDeliveryCourier
+                        if (isDelivery && picked == null) {
+                            Snackbar.make(buildPage, getString(R.string.checkout_need_pick_point), Snackbar.LENGTH_SHORT).show()
+                            return@setOnClickListener
+                        }
+                        val deliveryType = if (isDelivery) "delivery" else "pickup"
+                        val shippingAddr = if (isDelivery) picked!!.address else "Самовывоз"
+                        val pickupId = if (isDelivery) picked?.id else null
+                        Thread {
+                            val r = BuildsApi.createOrder(
+                                sessionManager.token, n, p, e, shippingAddr, c, deliveryType, pickupId
+                            )
+                            runOnUiThread {
+                                when (r) {
+                                    is BuildsApi.ApiResult.Success -> {
+                                        Snackbar.make(buildPage, "Заказ #${r.data.id} оформлен", Snackbar.LENGTH_LONG).show()
+                                        onOrderCreated()
+                                        dlg.dismiss()
+                                    }
+                                    is BuildsApi.ApiResult.Error -> {
+                                        Snackbar.make(buildPage, r.message, Snackbar.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        }.start()
+                    }
+                }
+                dlg.show()
+            }
+    }
+
     private fun showOrderDetailDialog(order: BuildsApi.Order) {
         val density = resources.displayMetrics.density
         val pad = (20 * density).toInt()
@@ -2513,8 +2640,34 @@ class MainActivity : AppCompatActivity() {
         appendValueLine(order.customer_phone)
         appendValueLine(order.customer_email)
 
-        appendSectionTitle(getString(R.string.order_detail_section_address))
-        appendValueLine(order.shipping_address)
+        appendSectionTitle(getString(R.string.order_detail_section_delivery))
+        val isDelivery = order.delivery_type.equals("delivery", ignoreCase = true)
+        if (isDelivery) {
+            appendValueLine(getString(R.string.order_detail_delivery_courier))
+            val pickName = order.pickup_point_name
+            val pickAddr = order.pickup_point_address ?: order.shipping_address
+            if (!pickName.isNullOrBlank()) {
+                appendValueLine(getString(R.string.order_detail_delivery_point, pickName, pickAddr))
+            } else {
+                appendValueLine(pickAddr)
+            }
+            val feeNum = order.delivery_fee
+            if (feeNum != null) {
+                val feeStr = priceStr(feeNum)
+                val distNum = order.delivery_distance_km?.toDouble() ?: 0.0
+                if (distNum <= 0.0) {
+                    appendMutedLine(getString(R.string.order_detail_delivery_fee_same_city, feeStr))
+                } else {
+                    appendMutedLine(getString(R.string.order_detail_delivery_fee_distance, feeStr, String.format(Locale("ru","RU"), "%.1f", distNum)))
+                }
+            }
+        } else {
+            appendValueLine(getString(R.string.order_detail_delivery_pickup))
+            val addr = order.shipping_address
+            if (addr.isNotBlank() && !addr.equals("Самовывоз", ignoreCase = true)) {
+                appendMutedLine(addr)
+            }
+        }
 
         if (!order.comment.isNullOrBlank()) {
             appendSectionTitle(getString(R.string.order_detail_section_comment))

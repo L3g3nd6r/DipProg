@@ -1,4 +1,20 @@
 const express = require('express')
+const {
+  ASSEMBLER_BASE,
+  SAME_CITY_FEE_RUB,
+  PER_10KM_RUB,
+  listPoints,
+  findPointById,
+  computeDeliveryFee,
+} = require('../services/pickup-points')
+
+const ORDER_RETURN_FIELDS = `
+  id, user_id, customer_name, customer_phone, customer_email, shipping_address,
+  comment, items_json, total_rub, status, created_at, updated_at, completed_at, received_at,
+  delivery_type, pickup_point_id, pickup_point_name, pickup_point_address,
+  pickup_point_city, pickup_point_lat, pickup_point_lng,
+  delivery_distance_km, delivery_fee
+`
 
 function escapeHtml(s) {
   return String(s ?? '')
@@ -185,6 +201,18 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
     )
   }
 
+  /** Справочник точек выдачи + базовая точка сборщика и формула расчёта. */
+  router.get('/pickup-points', (req, res) => {
+    res.json({
+      points: listPoints(),
+      assembler_base: ASSEMBLER_BASE,
+      pricing: {
+        same_city_fee_rub: SAME_CITY_FEE_RUB,
+        per_10km_rub: PER_10KM_RUB,
+      },
+    })
+  })
+
   router.post('/', async (req, res) => {
     try {
       const userId = Number(req.user.userId)
@@ -192,10 +220,34 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
       const customerName = String(req.body?.customer_name || '').trim()
       const customerPhone = String(req.body?.customer_phone || '').trim()
       const customerEmail = String(req.body?.customer_email || '').trim()
-      const shippingAddress = String(req.body?.shipping_address || '').trim()
       const comment = String(req.body?.comment || '').trim()
-      if (!customerName || !customerPhone || !customerEmail || !shippingAddress) {
-        return res.status(400).json({ error: 'Заполните имя, телефон, email и адрес доставки' })
+
+      const deliveryType = String(req.body?.delivery_type || 'pickup').trim().toLowerCase()
+      if (deliveryType !== 'pickup' && deliveryType !== 'delivery') {
+        return res.status(400).json({ error: 'Некорректный способ получения' })
+      }
+
+      let pickupPoint = null
+      let deliveryFee = 0
+      let deliveryDistance = 0
+      let shippingAddress = ''
+
+      if (deliveryType === 'delivery') {
+        const pid = String(req.body?.pickup_point_id || '').trim()
+        pickupPoint = findPointById(pid)
+        if (!pickupPoint) {
+          return res.status(400).json({ error: 'Выберите точку выдачи на карте' })
+        }
+        const calc = computeDeliveryFee(pickupPoint)
+        deliveryFee = calc.fee
+        deliveryDistance = calc.distance_km
+        shippingAddress = pickupPoint.address
+      } else {
+        shippingAddress = String(req.body?.shipping_address || '').trim() || 'Самовывоз'
+      }
+
+      if (!customerName || !customerPhone || !customerEmail) {
+        return res.status(400).json({ error: 'Заполните имя, телефон и email' })
       }
 
       const cartResult = await pool.query(
@@ -216,15 +268,18 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
         quantity: Number(r.quantity) || 1,
         price: String(r.price ?? '0'),
       }))
-      const total = items.reduce((s, it) => s + toPriceNumber(it.price) * it.quantity, 0)
+      const itemsTotal = items.reduce((s, it) => s + toPriceNumber(it.price) * it.quantity, 0)
+      const total = itemsTotal + deliveryFee
 
       const insertOrder = await pool.query(
         `INSERT INTO orders (
            user_id, customer_name, customer_phone, customer_email, shipping_address,
-           comment, items_json, total_rub, status
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)
-         RETURNING id, user_id, customer_name, customer_phone, customer_email, shipping_address,
-                   comment, items_json, total_rub, status, created_at, updated_at, completed_at, received_at`,
+           comment, items_json, total_rub, status,
+           delivery_type, pickup_point_id, pickup_point_name, pickup_point_address,
+           pickup_point_city, pickup_point_lat, pickup_point_lng,
+           delivery_distance_km, delivery_fee
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         RETURNING ${ORDER_RETURN_FIELDS}`,
         [
           userId,
           customerName,
@@ -235,6 +290,15 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
           JSON.stringify(items),
           total,
           'new',
+          deliveryType,
+          pickupPoint ? pickupPoint.id : null,
+          pickupPoint ? pickupPoint.name : null,
+          pickupPoint ? pickupPoint.address : null,
+          pickupPoint ? pickupPoint.city : null,
+          pickupPoint ? pickupPoint.lat : null,
+          pickupPoint ? pickupPoint.lng : null,
+          deliveryDistance,
+          deliveryFee,
         ]
       )
       await pool.query('DELETE FROM cart_items WHERE user_id = $1', [userId])
@@ -265,8 +329,7 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
     try {
       const userId = Number(req.user.userId)
       const result = await pool.query(
-        `SELECT id, user_id, customer_name, customer_phone, customer_email, shipping_address,
-                comment, items_json, total_rub, status, created_at, updated_at, completed_at, received_at
+        `SELECT ${ORDER_RETURN_FIELDS}
          FROM orders
          WHERE user_id = $1
          ORDER BY CASE status
@@ -289,8 +352,7 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
     try {
       if (!isAssembler(req)) return res.status(403).json({ error: 'Доступ только для сборщика' })
       const result = await pool.query(
-        `SELECT id, user_id, customer_name, customer_phone, customer_email, shipping_address,
-                comment, items_json, total_rub, status, created_at, updated_at, completed_at, received_at
+        `SELECT ${ORDER_RETURN_FIELDS}
          FROM orders
          ORDER BY CASE status
            WHEN 'new' THEN 0
@@ -351,8 +413,7 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
         `UPDATE orders
          SET status = 'sent', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP, completed_by = $2
          WHERE id = $1 AND status = 'new'
-         RETURNING id, user_id, customer_name, customer_phone, customer_email, shipping_address,
-                   comment, items_json, total_rub, status, created_at, updated_at, completed_at, received_at`,
+         RETURNING ${ORDER_RETURN_FIELDS}`,
         [orderId, assemblerId]
       )
       if (result.rows.length === 0) {
@@ -377,8 +438,7 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
         `UPDATE orders
          SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND status IN ('new', 'sent')
-         RETURNING id, user_id, customer_name, customer_phone, customer_email, shipping_address,
-                   comment, items_json, total_rub, status, created_at, updated_at, completed_at, received_at`,
+         RETURNING ${ORDER_RETURN_FIELDS}`,
         [orderId]
       )
       if (result.rows.length === 0) {
@@ -444,8 +504,7 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
         `UPDATE orders
          SET status = 'received', received_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND user_id = $2 AND status = 'sent'
-         RETURNING id, user_id, customer_name, customer_phone, customer_email, shipping_address,
-                   comment, items_json, total_rub, status, created_at, updated_at, completed_at, received_at`,
+         RETURNING ${ORDER_RETURN_FIELDS}`,
         [orderId, userId]
       )
       if (result.rows.length === 0) {

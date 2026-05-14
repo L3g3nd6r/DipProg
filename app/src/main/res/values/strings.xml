@@ -142,6 +142,32 @@
     <string name="order_detail_stage_sent_assembler">отправлен клиенту</string>
     <string name="order_detail_stage_received">получен</string>
     <string name="order_detail_stage_cancelled">отменён сборщиком</string>
+
+    <string name="pickup_map_title">Точка выдачи</string>
+    <string name="pickup_map_hint_title">Выберите точку на карте</string>
+    <string name="pickup_map_hint_subtitle">Фиолетовые маркеры — пункты «Почты России». Нажмите на любой, чтобы выбрать.</string>
+    <string name="pickup_map_confirm">Выбрать эту точку</string>
+    <string name="pickup_map_fee_same_city">В Альметьевске — фиксировано %1$d ₽</string>
+    <string name="pickup_map_fee_other_city">%1$.1f км от Альметьевска · доставка %2$d ₽</string>
+
+    <string name="checkout_delivery_section">Способ получения</string>
+    <string name="checkout_delivery_pickup">Самовывоз (без доставки)</string>
+    <string name="checkout_delivery_delivery">Доставка до точки выдачи</string>
+    <string name="checkout_pick_point">Выбрать точку на карте</string>
+    <string name="checkout_change_point">Изменить точку</string>
+    <string name="checkout_point_not_chosen">Точка выдачи не выбрана</string>
+    <string name="checkout_delivery_fee">Доставка: %1$d ₽</string>
+    <string name="checkout_delivery_free">Доставка не нужна — самовывоз</string>
+    <string name="checkout_items_total">Сумма по комплектующим: %1$s</string>
+    <string name="checkout_grand_total">Итого: %1$s</string>
+    <string name="checkout_need_pick_point">Выберите точку выдачи на карте</string>
+
+    <string name="order_detail_section_delivery">Получение</string>
+    <string name="order_detail_delivery_pickup">Самовывоз</string>
+    <string name="order_detail_delivery_courier">Доставка до точки выдачи</string>
+    <string name="order_detail_delivery_point">%1$s\n%2$s</string>
+    <string name="order_detail_delivery_fee_same_city">Стоимость доставки: %1$s (тариф «в городе»)</string>
+    <string name="order_detail_delivery_fee_distance">Стоимость доставки: %1$s (%2$s км от Альметьевска)</string>
     <string name="order_card_cd">Заказ номер %1$d, открыть детали</string>
     <string name="orders_empty_customer">У вас пока нет заказов</string>
     <string name="orders_empty_assembler">Пока нет заказов от клиентов</string>
