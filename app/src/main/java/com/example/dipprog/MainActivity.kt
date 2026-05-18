@@ -46,8 +46,11 @@ import com.example.dipprog.api.CartAdapter
 import com.example.dipprog.api.ComponentsAdapter
 import com.example.dipprog.api.DocumentsApi
 import com.example.dipprog.api.DocumentsAdapter
+import com.example.dipprog.api.OrderCallHelper
 import com.example.dipprog.api.OrdersAdapter
 import com.example.dipprog.api.priceStr
+import com.example.dipprog.guide.AiChatPromptHints
+import com.example.dipprog.guide.ChatHintAdapter
 import com.example.dipprog.auth.AuthApi
 import com.example.dipprog.auth.SessionManager
 import com.example.dipprog.guide.BeginnerGuide
@@ -269,6 +272,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var clearChatButton: MaterialButton
     private lateinit var attachedBuildStatusText: TextView
     private lateinit var messagesScrollView: ScrollView
+    private lateinit var chatHintsRecycler: RecyclerView
+    private var chatHintAdapter: ChatHintAdapter? = null
     /** История текстовых сообщений чата (без карточек подборок) — для восстановления после смены темы */
     private val chatHistory = mutableListOf<Pair<String, Boolean>>()
     /** Последние карточки подборок ИИ — для восстановления после смены темы */
@@ -347,7 +352,8 @@ class MainActivity : AppCompatActivity() {
         clearChatButton = aiChatPage.findViewById(R.id.clearChatButton)
         attachedBuildStatusText = aiChatPage.findViewById(R.id.attachedBuildStatusText)
         messagesScrollView = aiChatPage.findViewById(R.id.messagesScrollView)
-
+        chatHintsRecycler = aiChatPage.findViewById(R.id.chatHintsRecycler)
+        chatHintsRecycler.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
 
         setupBottomNavigation()
         setupKeyboardBottomNavListener()
@@ -531,6 +537,7 @@ class MainActivity : AppCompatActivity() {
             R.id.navigation_ai_chat -> {
                 bottomNavigationView.selectedItemId = R.id.navigation_ai_chat
                 scrollToBottomOfMessages()
+                refreshChatInputHints()
             }
             R.id.navigation_orders -> {
                 bottomNavigationView.selectedItemId = R.id.navigation_orders
@@ -2139,13 +2146,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateProfileUI() {
         updateOrdersTabVisibility()
-        val heroSub = profilePage.findViewById<TextView>(R.id.profileHeroSubtitle)
         val guestCard = profilePage.findViewById<View>(R.id.profileGuestCard)
         val userCard = profilePage.findViewById<View>(R.id.profileUserCard)
         if (sessionManager.isLoggedIn) {
-            val greetName =
-                sessionManager.userName?.trim()?.split(Regex("\\s+"))?.firstOrNull { it.isNotEmpty() } ?: "коллега"
-            heroSub.text = getString(R.string.profile_hero_user_hint, greetName)
             guestCard.visibility = View.GONE
             userCard.visibility = View.VISIBLE
             profilePage.findViewById<TextView>(R.id.profileUserName).text = sessionManager.userName ?: ""
@@ -2184,7 +2187,6 @@ class MainActivity : AppCompatActivity() {
             }
             refreshProfileStats()
         } else {
-            heroSub.text = getString(R.string.profile_hero_guest_hint)
             guestCard.visibility = View.VISIBLE
             userCard.visibility = View.GONE
             val guestTitle = profilePage.findViewById<TextView>(R.id.profileGuestTitle)
@@ -2891,6 +2893,20 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun dialAssembler(phoneRaw: String?) {
+        val normalized = OrderCallHelper.normalizePhoneForDial(phoneRaw.orEmpty())
+        if (normalized.isBlank()) {
+            anchoredSnackbar(getString(R.string.order_call_no_phone), Snackbar.LENGTH_LONG)
+            return
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$normalized")))
+        } catch (e: Exception) {
+            Log.e("Orders", "ACTION_DIAL failed", e)
+            anchoredSnackbar(getString(R.string.order_call_no_phone), Snackbar.LENGTH_SHORT)
+        }
+    }
+
     private fun setupOrdersPage() {
         val swipe = ordersPage.findViewById<SwipeRefreshLayout>(R.id.ordersSwipeRefresh)
         val recycler = ordersPage.findViewById<RecyclerView>(R.id.ordersRecycler)
@@ -2943,6 +2959,7 @@ class MainActivity : AppCompatActivity() {
             },
             { order -> confirmCancelOrderAsAssembler(order) },
             { order -> confirmDeleteOrderAsAssembler(order) },
+            { order -> dialAssembler(order.assembler_phone) },
             { order -> showOrderDetailDialog(order) },
         )
         recycler.adapter = adapter
@@ -3653,6 +3670,38 @@ class MainActivity : AppCompatActivity() {
         detachBuildButton.setOnClickListener { detachAttachedBuild() }
         clearChatButton.setOnClickListener { confirmClearAiChat() }
         refreshChatAttachState()
+
+        messageInputEditText.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                refreshChatInputHints()
+            }
+        })
+        messageInputEditText.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) refreshChatInputHints()
+        }
+        refreshChatInputHints()
+    }
+
+    private fun refreshChatInputHints() {
+        if (!::chatHintsRecycler.isInitialized) return
+        val hints = AiChatPromptHints.suggest(messageInputEditText.text?.toString().orEmpty())
+        if (hints.isEmpty()) {
+            chatHintsRecycler.visibility = View.GONE
+            return
+        }
+        chatHintsRecycler.visibility = View.VISIBLE
+        if (chatHintAdapter == null) {
+            chatHintAdapter = ChatHintAdapter(hints) { text ->
+                messageInputEditText.setText(text)
+                messageInputEditText.setSelection(text.length)
+                refreshChatInputHints()
+            }
+            chatHintsRecycler.adapter = chatHintAdapter
+        } else {
+            chatHintAdapter?.setHints(hints)
+        }
     }
 
     /** Текст прикреплённой сборки для контекста ИИ (название + список компонентов). null = не прикреплено. */
@@ -3681,6 +3730,7 @@ class MainActivity : AppCompatActivity() {
         apiChatHistory.clear()
         lastSuggestions = emptyList()
         messagesContainer.removeAllViews()
+        refreshChatInputHints()
         Snackbar.make(aiChatPage, getString(R.string.chat_cleared), Snackbar.LENGTH_SHORT).show()
     }
 

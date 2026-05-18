@@ -12,6 +12,7 @@ import androidx.core.content.ContextCompat
 import com.example.dipprog.R
 import com.example.dipprog.api.BuildsApi
 import com.example.dipprog.auth.SessionManager
+import com.example.dipprog.util.DeliveryFeeCalculator
 import com.example.dipprog.util.launchIo
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
@@ -224,17 +225,12 @@ class PickupPointMapActivity : AppCompatActivity() {
     }
 
     private fun computeDistanceKm(point: BuildsApi.PickupPoint): Double {
-        val b = base ?: return 0.0
-        if (point.city.equals(b.city, ignoreCase = true)) return 0.0
-        return haversineKm(b.lat, b.lng, point.lat, point.lng)
+        val calc = DeliveryFeeCalculator.compute(point)
+        return calc.distanceKm
     }
 
     private fun computeFee(point: BuildsApi.PickupPoint): Int {
-        val pr = pricing ?: return 0
-        val b = base ?: return 0
-        if (point.city.equals(b.city, ignoreCase = true)) return pr.sameCityFee
-        val km = haversineKm(b.lat, b.lng, point.lat, point.lng)
-        return (kotlin.math.ceil(km / 10.0) * pr.per10kmFee).toInt()
+        return DeliveryFeeCalculator.compute(point).fee
     }
 
     private fun formatFeeLine(fee: Int, distance: Double, city: String): String {

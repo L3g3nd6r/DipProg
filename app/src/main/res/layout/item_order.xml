@@ -86,5 +86,15 @@
             android:layout_marginTop="8dp"
             android:text="@string/order_btn_confirm_receipt"
             android:visibility="gone" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/orderCallAssemblerButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/order_call_assembler"
+            android:visibility="gone"
+            app:icon="@android:drawable/ic_menu_call" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

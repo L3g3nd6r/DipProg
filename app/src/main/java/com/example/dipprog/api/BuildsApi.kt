@@ -93,6 +93,8 @@ object BuildsApi {
         val pickup_point_lng: Double? = null,
         val delivery_distance_km: Number? = null,
         val delivery_fee: Number? = null,
+        /** Телефон сборщика для кнопки «Позвонить» (только у заказчика). */
+        val assembler_phone: String? = null,
         /** Ответ POST .../confirm-receipt: сохранён ли акт-документ в БД */
         val document_saved: Boolean? = null,
         val document_error: String? = null,
@@ -111,7 +113,6 @@ object BuildsApi {
     data class AssemblerBase(val city: String, val lat: Double, val lng: Double)
     data class PickupPricing(
         @SerializedName("same_city_fee_rub") val sameCityFee: Int,
-        @SerializedName("per_10km_rub") val per10kmFee: Int,
     )
 
     data class PickupPointsResponse(

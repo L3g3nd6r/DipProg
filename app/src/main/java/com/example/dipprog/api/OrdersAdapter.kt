@@ -18,6 +18,7 @@ class OrdersAdapter(
     private val onConfirmReceipt: (BuildsApi.Order) -> Unit,
     private val onCancelOrder: (BuildsApi.Order) -> Unit,
     private val onDeleteOrder: (BuildsApi.Order) -> Unit,
+    private val onCallAssembler: (BuildsApi.Order) -> Unit,
     private val onOpenDetail: (BuildsApi.Order) -> Unit
 ) : RecyclerView.Adapter<OrdersAdapter.VH>() {
 
@@ -30,6 +31,7 @@ class OrdersAdapter(
         val cancelBtn: MaterialButton = view.findViewById(R.id.orderCancelButton)
         val deleteBtn: MaterialButton = view.findViewById(R.id.orderDeleteButton)
         val confirmBtn: MaterialButton = view.findViewById(R.id.orderConfirmReceiptButton)
+        val callBtn: MaterialButton = view.findViewById(R.id.orderCallAssemblerButton)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
@@ -85,10 +87,13 @@ class OrdersAdapter(
         holder.cancelBtn.visibility = if (isAsm && (isNew || isSent)) View.VISIBLE else View.GONE
         holder.deleteBtn.visibility = if (isAsm) View.VISIBLE else View.GONE
         holder.confirmBtn.visibility = if (!isAsm && isSent) View.VISIBLE else View.GONE
+        holder.callBtn.visibility =
+            if (OrderCallHelper.shouldShowCallButton(item, isAsm)) View.VISIBLE else View.GONE
         holder.completeBtn.setOnClickListener { onComplete(item) }
         holder.cancelBtn.setOnClickListener { onCancelOrder(item) }
         holder.deleteBtn.setOnClickListener { onDeleteOrder(item) }
         holder.confirmBtn.setOnClickListener { onConfirmReceipt(item) }
+        holder.callBtn.setOnClickListener { onCallAssembler(item) }
 
         holder.itemView.contentDescription = holder.itemView.context.getString(R.string.order_card_cd, item.id)
         holder.itemView.setOnClickListener { onOpenDetail(item) }

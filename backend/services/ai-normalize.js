@@ -352,6 +352,24 @@ function isLikelyGreetingOnly(userMessage, normalized) {
 /**
  * Явные признаки запроса про ПК/железо. Короткие фразы без них не должны вызывать подбор сборки.
  */
+/**
+ * Вопрос/обсуждение без явного заказа «подбери сборку» — ответ своими словами (LLM), без плиток.
+ */
+function isConversationalQuestion(userMessage, normalized) {
+  const u = stripChatInput(userMessage).toLowerCase();
+  const n = stripChatInput(normalized || '').toLowerCase();
+  const scan = n && u !== n ? `${u} ${n}` : u;
+  if (scan.length < 2) return false;
+
+  if (/^(подбери|собери|составь|дай\s+вариант|нужна?\s+сборк|сделай\s+сборк)/i.test(u)) return false;
+
+  const discuss =
+    /(?:^|[\s,.!?])(?:что|как|почему|зачем|чем|чего|какой|какая|какое|какие|сколько|можно\s+ли|стоит\s+ли|лучше\s+ли|хуже\s+ли|разница|отлича|сравни|объясни|расскажи|подскажи|посоветуй|потянет|пойдет|пойдёт|норм|нормальн|ок\s+ли|имеет\s+смысл|выгодн|переплат|узкое\s+место|bottleneck|производительност|хватит\s+ли|достаточно\s+ли|нужен\s+ли|нужна\s+ли|нужно\s+ли)(?:$|[\s,.!?])/i;
+  if (discuss.test(scan)) return true;
+  if (/\?/.test(u) && !/(подбери|собери|составь|дай\s+сборк|нужна?\s+сборк)/i.test(u)) return true;
+  return false;
+}
+
 function hasExplicitPcBuildIntent(userMessage, normalized) {
   const u = stripChatInput(userMessage).toLowerCase();
   const n = stripChatInput(normalized).toLowerCase();
@@ -398,6 +416,7 @@ module.exports = {
   extractCpuPreferenceFuzzy,
   extractCpuDetailHint,
   isLikelyGreetingOnly,
+  isConversationalQuestion,
   hasExplicitPcBuildIntent,
   levenshtein,
   extractWorkloadHint,

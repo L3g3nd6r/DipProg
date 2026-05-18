@@ -1,17 +1,22 @@
 /**
- * Точки выдачи (примерные «Почта России») и расчёт стоимости доставки.
- *
- * Сборщик находится в Альметьевске — это «нулевая» точка для расчёта.
- * Если выбранная точка — в Альметьевске → фиксированная цена 400 ₽.
- * Иначе берётся расстояние по большому кругу (Haversine) от центра Альметьевска
- * до точки и считается 500 ₽ за каждые начатые 10 км.
+ * Точки выдачи и расчёт доставки от Альметьевска (база сборщика).
+ * Альметьевск — фикс 400 ₽. Остальные города — по дистанции (реалистичные ступени).
  */
 
 const ASSEMBLER_BASE = { lat: 54.9024, lng: 52.2974, city: 'Альметьевск' }
 const SAME_CITY_FEE_RUB = 400
-const PER_10KM_RUB = 500
 
-/** id точек — короткие и стабильные, чтобы сохранять их в orders. */
+/** Ступени: до N км включительно → цена в ₽ (похоже на Почту России / СДЭК по региону). */
+const DISTANCE_TIERS = [
+  { maxKm: 30, fee: 220 },
+  { maxKm: 55, fee: 280 },
+  { maxKm: 85, fee: 340 },
+  { maxKm: 120, fee: 390 },
+  { maxKm: 160, fee: 450 },
+  { maxKm: 220, fee: 520 },
+  { maxKm: Infinity, fee: 590 },
+]
+
 const POINTS = [
   { id: 'alm-lenina-12',     name: 'Почта России — Альметьевск, Ленина 12',     address: 'г. Альметьевск, ул. Ленина, 12',         city: 'Альметьевск',       lat: 54.9020, lng: 52.2970 },
   { id: 'alm-mayakovskogo',  name: 'Почта России — Альметьевск, Маяковского 89', address: 'г. Альметьевск, ул. Маяковского, 89',     city: 'Альметьевск',       lat: 54.9095, lng: 52.3155 },
@@ -40,35 +45,38 @@ function haversineKm(a, b) {
   return 2 * R * Math.asin(Math.sqrt(aa))
 }
 
+function feeByDistanceKm(km) {
+  for (const tier of DISTANCE_TIERS) {
+    if (km <= tier.maxKm) return tier.fee
+  }
+  return DISTANCE_TIERS[DISTANCE_TIERS.length - 1].fee
+}
+
 function findPointById(id) {
   if (!id) return null
-  const found = POINTS.find((p) => p.id === id)
-  return found || null
+  return POINTS.find((p) => p.id === id) || null
 }
 
 function listPoints() {
   return POINTS.map((p) => ({ ...p }))
 }
 
-/**
- * Возвращает { fee, distance_km } для конкретной точки выдачи.
- * fee — целое число рублей, distance_km — до десятых.
- */
 function computeDeliveryFee(point) {
   if (!point) return { fee: 0, distance_km: 0 }
   if (normalizeCity(point.city) === normalizeCity(ASSEMBLER_BASE.city)) {
     return { fee: SAME_CITY_FEE_RUB, distance_km: 0 }
   }
   const km = haversineKm(ASSEMBLER_BASE, point)
-  const fee = Math.ceil(km / 10) * PER_10KM_RUB
+  const fee = feeByDistanceKm(km)
   return { fee, distance_km: Math.round(km * 10) / 10 }
 }
 
 module.exports = {
   ASSEMBLER_BASE,
   SAME_CITY_FEE_RUB,
-  PER_10KM_RUB,
+  DISTANCE_TIERS,
   listPoints,
   findPointById,
   computeDeliveryFee,
+  haversineKm,
 }

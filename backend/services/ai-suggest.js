@@ -18,6 +18,7 @@ const {
   extractCpuPreferenceFuzzy,
   extractCpuDetailHint,
   isLikelyGreetingOnly,
+  isConversationalQuestion,
   hasExplicitPcBuildIntent,
   extractWorkloadHint,
   detectUpgradeIntent,
@@ -694,8 +695,10 @@ function ensureCompatibleAndBudget(catalog, componentIds, maxBudgetRub) {
  * @param {string} userMsg   — текущий запрос пользователя (каталог + сообщение).
  * @param {Array}  history   — [{role:'user'|'assistant', content: string}, …] — до 8 предыдущих сообщений.
  */
-async function callOpenAiCompatible(systemMsg, userMsg, history) {
+async function callOpenAiCompatible(systemMsg, userMsg, history, options = {}) {
   if (!OPENAI_API_KEY) return null;
+  const temperature = typeof options.temperature === 'number' ? options.temperature : 0.45;
+  const maxTokens = typeof options.maxTokens === 'number' ? options.maxTokens : 3000;
   let timeoutId;
   try {
     const controller = new AbortController();
@@ -727,8 +730,8 @@ async function callOpenAiCompatible(systemMsg, userMsg, history) {
       body: JSON.stringify({
         model: OPENAI_MODEL,
         messages,
-        temperature: 0.45,
-        max_tokens: 3000,
+        temperature,
+        max_tokens: maxTokens,
       }),
       signal: controller.signal,
     });
@@ -748,7 +751,9 @@ async function callOpenAiCompatible(systemMsg, userMsg, history) {
   }
 }
 
-async function callOllama(prompt) {
+async function callOllama(prompt, options = {}) {
+  const temperature = typeof options.temperature === 'number' ? options.temperature : 0.4;
+  const numPredict = typeof options.numPredict === 'number' ? options.numPredict : 800;
   let timeoutId;
   try {
     const controller = new AbortController();
@@ -760,7 +765,7 @@ async function callOllama(prompt) {
         model: OLLAMA_MODEL,
         prompt,
         stream: false,
-        options: { temperature: 0.4, num_predict: 800 },
+        options: { temperature, num_predict: numPredict },
       }),
       signal: controller.signal,
     });
@@ -798,7 +803,7 @@ const AI_SYSTEM_PROMPT = `Ты — эксперт-консультант по с
 Расшифровка жаргона: «ртх»=RTX, «видяха/видюха»=видеокарта, «проц»=процессор, «мать/матка»=материнская плата, «оперативка»=ОЗУ, «накоп»=накопитель, «к»=тысяч рублей (50к=50000).
 
 РЕЖИМЫ ОТВЕТА — выбери один:
-A) Текстовый ответ — приветствие, общий вопрос, сравнение, уточнение, «потянет ли X игру».
+A) Текстовый ответ своими словами — приветствие, общий вопрос, сравнение, уточнение, «потянет ли X игру» (без шаблонных списков примеров).
 B) JSON — пользователь явно или по смыслу просит подобрать сборку / комплектующие.
 C) JSON с "text" и "suggestions" одновременно — если прикреплена сборка пользователя: короткий обзор текстом + 2–3 альтернативы.
 
@@ -1066,7 +1071,98 @@ async function smartFallback(pool, userMessage, normPre, workload) {
   };
 }
 
-const SHORT_MSG_NO_INTENT_MAX_LEN = 160;
+const CONVERSATIONAL_AI_SYSTEM_PROMPT = `Ты — живой консультант по компьютерам и сборке ПК в российском магазине. Отвечай только по-русски, своими словами, как эксперт в чате: без шаблонных списков «примеры запросов», без копипасты заготовок.
+
+Тематика строго: ПК, комплектующие, совместимость, игры/FPS, монтаж, стриминг, офис, апгрейд, выбор CPU/GPU/ОЗУ/накопителей/БП, бюджеты в рублях.
+
+Если вопрос не про компьютеры — вежливо скажи, что помогаешь только с ПК и сборками, и предложи переформулировать.
+
+Не возвращай JSON и не предлагай готовые «варианты сборок с id» — это делает другой режим. Отвечай связным текстом (абзацы допустимы). Можно 2–6 предложений или чуть больше, если тема сложная.
+
+Жаргон: «видяха»=видеокарта, «проц»=процессор, «мать»=матплата, «к»=тысяч рублей. Учитывай прикреплённую сборку, если она есть в сообщении пользователя.`;
+
+function shouldUseBuildPickFlow(clean, normNormalized, buildSummary) {
+  const scan = `${clean} ${normNormalized}`.toLowerCase();
+  const attached = !!(buildSummary && String(buildSummary).trim());
+
+  if (isConversationalQuestion(clean, normNormalized)) {
+    if (!/(подбери|собери|составь|вариант[ы]?\s+сборк|дай\s+сборк|нужна?\s+сборк|сделай\s+сборк)/i.test(scan)) {
+      return false;
+    }
+  }
+
+  if (/(подбери|подбор|собери|собрать|составь|дай\s+вариант|варианты\s+сборк|нужна?\s+сборк|сделай\s+сборк|нужен\s+пк|хочу\s+пк|купить\s+пк)/i.test(scan)) {
+    return true;
+  }
+
+  if (attached && /(альтернатив|подбери|улучш|пересоб|дешевле|дороже|за\s+ту\s+же)/i.test(scan)) {
+    return true;
+  }
+
+  const budgetRub = parseBudgetRub(clean, normNormalized);
+  if (budgetRub > 0 && /(сборк|пк\b|комп)/i.test(scan) && !isConversationalQuestion(clean, normNormalized)) {
+    return true;
+  }
+
+  if (hasExplicitPcBuildIntent(clean, normNormalized) && !isConversationalQuestion(clean, normNormalized)) {
+    return true;
+  }
+
+  return false;
+}
+
+function buildConversationalUserMsg(clean, buildSummary, normContext) {
+  const norm = normContext && normContext.normalized ? normContext.normalized : clean;
+  const corrNote =
+    normContext && normContext.corrections && normContext.corrections.length
+      ? `\n(исходный текст с опечатками: «${(normContext.original || clean).slice(0, 120)}»)`
+      : '';
+  let block = '';
+  if (buildSummary && String(buildSummary).trim()) {
+    block = `\n\nПрикреплённая сборка пользователя (только для контекста ответа, не предлагай новые варианты с id):\n${buildSummary.trim()}`;
+  }
+  return `Сообщение пользователя: «${clean}»${corrNote}\nНормализовано: «${norm}»${block}\n\nОтветь по сути вопроса своими словами:`;
+}
+
+function conversationalTextFromRaw(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const parsed = extractJsonFromResponse(trimmed);
+  if (parsed && typeof parsed.text === 'string' && parsed.text.trim()) {
+    return parsed.text.trim();
+  }
+  if (parsed && parsed.suggestions) {
+    return null;
+  }
+  const withoutFence = trimmed.replace(/^```[\w]*\n?|```$/g, '').trim();
+  if (withoutFence.startsWith('{') && withoutFence.includes('"suggestions"')) {
+    return null;
+  }
+  return withoutFence;
+}
+
+async function getConversationalAiResponse(clean, buildSummary, norm, history) {
+  const userMsg = buildConversationalUserMsg(clean, buildSummary, norm);
+  let raw = null;
+  if (OPENAI_API_KEY) {
+    raw = await callOpenAiCompatible(CONVERSATIONAL_AI_SYSTEM_PROMPT, userMsg, history, {
+      temperature: 0.72,
+      maxTokens: 1400,
+    });
+  }
+  if (!raw) {
+    raw = await callOllama(`${CONVERSATIONAL_AI_SYSTEM_PROMPT}\n\n${userMsg}`, {
+      temperature: 0.65,
+      numPredict: 1000,
+    });
+  }
+  const text = conversationalTextFromRaw(raw);
+  if (text) return { text };
+  return {
+    text: 'Сейчас не удалось получить ответ от нейросети. Убедитесь, что на сервере задан OPENAI_API_KEY (или запущена Ollama), и попробуйте ещё раз.',
+  };
+}
 
 /**
  * Главная точка входа ИИ-ответа.
@@ -1087,17 +1183,9 @@ async function getAiResponse(pool, userMessage, buildSummary = null, history = n
   const hasAttachedBuild = !!(buildSummary && String(buildSummary).trim().length > 0);
   const attachedTotalRub = hasAttachedBuild ? parseBuildSummaryTotalRub(buildSummary) : 0;
 
-  // Прикреплённая сборка меняет режим: даже на короткие/общие вопросы отвечаем обзором + альтернативами
-  if (!hasAttachedBuild) {
-    if (isGreetingOrCapabilityQuestion(clean, norm.normalized)) {
-      return smartFallback(pool, clean, norm, workload);
-    }
-
-    if (clean.length <= SHORT_MSG_NO_INTENT_MAX_LEN && !hasExplicitPcBuildIntent(clean, norm.normalized)) {
-      return {
-        text: 'Опишите запрос про сборку — например:\n• «Игровой ПК до 100к с RTX 5070»\n• «Сборка для монтажа видео, бюджет 180 000»\n• «Тихий офисный компьютер до 60к»\nМожно писать с опечатками и по-русски.',
-      };
-    }
+  const useBuildPick = shouldUseBuildPickFlow(clean, norm.normalized, buildSummary);
+  if (!useBuildPick) {
+    return getConversationalAiResponse(clean, buildSummary, norm, history);
   }
 
   const catalog = await loadCatalogForAi(pool);
@@ -1128,13 +1216,6 @@ async function getAiResponse(pool, userMessage, buildSummary = null, history = n
       const fallbackBudget = effectiveBudget > 0 ? effectiveBudget : 130000;
       const chipInfo = getGpuChipFromMessage(effective) || getGpuChipFromMessage(clean);
       const parsedText = typeof parsed.text === 'string' ? parsed.text.trim() : '';
-
-      // Если LLM вернул JSON со сборками, но запрос без явного намерения и нет прикреплённой сборки — игнорируем
-      if (!hasAttachedBuild && clean.length <= 120 && !hasExplicitPcBuildIntent(clean, norm.normalized)) {
-        return {
-          text: 'Запрос выглядит как общение без подбора железа. Напишите бюджет, задачи или модель видеокарты — предложу сборки из каталога.',
-        };
-      }
 
       // Если бюджет известен и >= 50k — пробуем сгенерировать 3 варианта алгоритмически
       // Но не подменяем ответ LLM, если прикреплена сборка (обзор важнее стандартных трёх вариантов).
@@ -1223,25 +1304,20 @@ async function getAiResponse(pool, userMessage, buildSummary = null, history = n
       }
     }
 
-    // Модель вернула простой текст без JSON — для запросов про сборку показываем плитки из каталога
     if (trimmed.length > 0) {
+      const plain = conversationalTextFromRaw(trimmed) || trimmed;
       if (hasAttachedBuild) {
-        // Для прикреплённой сборки добавляем альтернативы из каталога
         const fb = await smartFallbackForAttachedBuild(pool, catalog, attachedTotalRub, gpuPrefer, cpuHint, workload, effective);
-        return { text: trimmed, suggestions: fb.suggestions };
+        return { text: plain, suggestions: fb.suggestions };
       }
-      if (hasExplicitPcBuildIntent(clean, norm.normalized)) {
-        return smartFallback(pool, clean, norm, workload);
-      }
-      return { text: trimmed };
+      return { text: plain };
     }
   }
 
-  // LLM недоступна — собственный фолбэк
   if (hasAttachedBuild) {
     return smartFallbackForAttachedBuild(pool, catalog, attachedTotalRub, gpuPrefer, cpuHint, workload, effective);
   }
-  return smartFallback(pool, clean, norm, workload);
+  return getConversationalAiResponse(clean, buildSummary, norm, history);
 }
 
 /**

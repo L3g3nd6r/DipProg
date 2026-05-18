@@ -114,6 +114,9 @@
     <string name="order_dialog_delete_message">Заказ #%1$d будет безвозвратно удалён из базы: он исчезнет у клиента и у всех сборщиков. Связанные документы по заказу также будут удалены. Продолжить?</string>
     <string name="order_snackbar_cancelled">Заказ #%1$d отменён</string>
     <string name="order_snackbar_deleted">Заказ #%1$d удалён</string>
+    <string name="order_call_assembler">Позвонить</string>
+    <string name="order_call_no_phone">Номер сборщика не настроен на сервере</string>
+    <string name="chat_hints_label">Подсказки</string>
     <string name="order_item_title">Заказ #%1$d • %2$s</string>
     <string name="order_status_received">Статус: получен (%1$s)</string>
     <string name="order_status_sent_assembler">Статус: отправлен — ждём подтверждения клиента</string>

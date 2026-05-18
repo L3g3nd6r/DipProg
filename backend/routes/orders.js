@@ -2,11 +2,19 @@ const express = require('express')
 const {
   ASSEMBLER_BASE,
   SAME_CITY_FEE_RUB,
-  PER_10KM_RUB,
+  DISTANCE_TIERS,
   listPoints,
   findPointById,
   computeDeliveryFee,
 } = require('../services/pickup-points')
+
+/** Телефон сборщика для кнопки «Позвонить» у заказчика (задаётся в .env). */
+const ASSEMBLER_PHONE = String(process.env.ASSEMBLER_PHONE || '+79001234567').trim()
+
+function enrichOrderForCustomer(row, isAssemblerRequest) {
+  if (isAssemblerRequest) return row
+  return { ...row, assembler_phone: ASSEMBLER_PHONE }
+}
 
 const ORDER_RETURN_FIELDS = `
   id, user_id, customer_name, customer_phone, customer_email, shipping_address,
@@ -225,7 +233,7 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
       assembler_base: ASSEMBLER_BASE,
       pricing: {
         same_city_fee_rub: SAME_CITY_FEE_RUB,
-        per_10km_rub: PER_10KM_RUB,
+        distance_tiers: DISTANCE_TIERS,
       },
     })
   })
@@ -335,7 +343,7 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
         )
       }
 
-      res.status(201).json(insertOrder.rows[0])
+      res.status(201).json(enrichOrderForCustomer(insertOrder.rows[0], false))
     } catch (err) {
       console.error('POST /api/orders', err)
       res.status(500).json({ error: 'Ошибка оформления заказа' })
@@ -358,7 +366,7 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
          END, created_at DESC`,
         [userId]
       )
-      res.json({ orders: result.rows })
+      res.json({ orders: result.rows.map((r) => enrichOrderForCustomer(r, false)) })
     } catch (err) {
       console.error('GET /api/orders/my', err)
       res.status(500).json({ error: 'Ошибка загрузки заказов' })
@@ -559,11 +567,16 @@ function createRouter(pool, authMiddleware, resolveUserRole) {
         console.error('confirm-receipt: сохранение акта в БД:', docErr)
       }
 
-      res.json({
-        ...row,
-        document_saved: documentSaved,
-        document_error: documentError,
-      })
+      res.json(
+        enrichOrderForCustomer(
+          {
+            ...row,
+            document_saved: documentSaved,
+            document_error: documentError,
+          },
+          false
+        )
+      )
     } catch (err) {
       console.error('POST /api/orders/:id/confirm-receipt', err)
       res.status(500).json({ error: 'Ошибка подтверждения получения' })
