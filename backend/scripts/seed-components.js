@@ -1,7 +1,7 @@
 /**
  * Наполнение БД категориями и комплектующими (~50+ на категорию).
- * Базовые цены в коде — ориентир прошлых сезонов; при вставке умножаются на коэффициент
- * (актуализация под розницу ~2026 Q1, округление до 100 ₽). Запуск: npm run seed
+ * Базовые цены в коде + коэффициент розницы РФ и точечные оверрайды (актуализация ~2025–2026).
+ * Запуск: npm run seed  |  только цены: npm run update-prices
  */
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const { Pool } = require('pg');
@@ -10,13 +10,16 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/dipproj',
 });
 
-/** Коэффициент к базовым ценам в generateComponents (инфляция / курс, без внешнего API). */
-const SEED_PRICE_FACTOR = 1.07
+const { applyRetailPrice } = require('./retail-prices');
 
-function seedPriceRub(n) {
-  const x = Number(n)
-  if (!Number.isFinite(x)) return 0
-  return Math.max(100, Math.round((x * SEED_PRICE_FACTOR) / 100) * 100)
+/** Коэффициент к базовым ценам (розница РФ, округление до 100 ₽). */
+const SEED_PRICE_FACTOR = 1.22;
+
+function seedPriceRub(n, productName) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  const scaled = Math.max(100, Math.round((x * SEED_PRICE_FACTOR) / 100) * 100);
+  return applyRetailPrice(productName, scaled);
 }
 
 const CATEGORIES = [
@@ -54,7 +57,7 @@ async function seed() {
              price = EXCLUDED.price,
              specs = EXCLUDED.specs,
              updated_at = CURRENT_TIMESTAMP`,
-          [c.category_id, c.name, c.description || null, seedPriceRub(c.price), c.specs ? JSON.stringify(c.specs) : null]
+          [c.category_id, c.name, c.description || null, seedPriceRub(c.price, c.name), c.specs ? JSON.stringify(c.specs) : null]
         );
       }
       console.log(`Категория "${cat.name}": ${components.length} позиций.`);

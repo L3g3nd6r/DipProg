@@ -92,11 +92,23 @@
         style="@style/Widget.Material3.Button"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
+        android:layout_marginBottom="6dp"
         android:minHeight="50dp"
         android:text="🤖 ИИ-инспектор сборки"
         android:textAppearance="@style/TextAppearance.Material3.LabelLarge"
         app:cornerRadius="12dp" />
+
+    <TextView
+        android:id="@+id/buildDetailInspectorHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        android:background="@drawable/bg_ai_suggestion_desc"
+        android:lineSpacingExtra="2dp"
+        android:padding="12dp"
+        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:visibility="gone" />
 
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/buildDetailCompatibilityCard"

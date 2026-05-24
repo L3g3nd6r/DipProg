@@ -11,6 +11,7 @@
     "init-db": "node init-db.js",
     "init-components": "node init-components.js",
     "seed": "node scripts/seed-components.js",
+    "update-prices": "node scripts/update-prices.js",
     "migrate": "node run-migrate.js",
     "setup-cloud-db": "node scripts/setup-neon-db.js"
   },

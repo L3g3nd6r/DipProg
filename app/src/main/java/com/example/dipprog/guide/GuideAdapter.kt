@@ -1,10 +1,12 @@
 package com.example.dipprog.guide
 
+import android.content.res.ColorStateList
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.example.dipprog.R
 import java.util.Locale
@@ -30,7 +32,23 @@ class GuideAdapter(
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val s = visibleSections[position]
-        holder.image.setImageResource(resolveGuideImageRes(s))
+        val ctx = holder.itemView.context
+        if (s.imageResId != null) {
+            holder.image.setImageResource(s.imageResId)
+            holder.image.scaleType = ImageView.ScaleType.FIT_CENTER
+            holder.image.setPadding(8, 8, 8, 8)
+            holder.image.setBackgroundResource(R.drawable.bg_guide_section_image)
+            holder.image.imageTintList = null
+            holder.image.clearColorFilter()
+        } else {
+            holder.image.setImageResource(resolveGuideImageRes(s))
+            holder.image.scaleType = ImageView.ScaleType.CENTER_INSIDE
+            holder.image.setPadding(24, 24, 24, 24)
+            holder.image.setBackgroundResource(R.drawable.bg_guide_section_image)
+            holder.image.imageTintList = ColorStateList.valueOf(
+                ContextCompat.getColor(ctx, R.color.md_on_primary_container)
+            )
+        }
         holder.title.text = s.title
         holder.body.text = s.body.trim()
     }

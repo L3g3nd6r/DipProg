@@ -2424,9 +2424,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun syncBuildInspectorButton(components: List<BuildsApi.BuildComponent>) {
         val btn = buildPage.findViewById<MaterialButton>(R.id.buildDetailAnalyze) ?: return
+        val hint = buildPage.findViewById<TextView>(R.id.buildDetailInspectorHint)
         val eligibility = BuildInspectorEligibility.check(components)
         btn.isEnabled = eligibility.allowed
         btn.alpha = if (eligibility.allowed) 1f else 0.45f
+        if (hint != null) {
+            if (eligibility.allowed) {
+                hint.visibility = View.GONE
+            } else {
+                hint.visibility = View.VISIBLE
+                hint.text = eligibility.message
+                    ?: "Добавьте процессор, материнскую плату, ОЗУ и ещё комплектующие (минимум 4 позиции), чтобы ИИ-инспектор дал точный отчёт."
+            }
+        }
     }
 
     private fun runAiBuildInspector(detail: BuildsApi.BuildDetail) {

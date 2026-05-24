@@ -370,6 +370,29 @@ function isConversationalQuestion(userMessage, normalized) {
   return false;
 }
 
+/**
+ * Пользователь явно просит несколько вариантов сборки (2–3), а не один лучший.
+ */
+function wantsMultipleBuildVariants(userMessage, normalized) {
+  const scan = `${userMessage || ''} ${normalized || ''}`.toLowerCase();
+  return /(?:нескольк|2\s*[-–]?\s*3|два|три|пару)\s*(?:вариант|сборк|комплект)|варианты\s+сборк|альтернатив(?:ы|у)?\s+(?:сборк|вариант)|на\s+выбор|сравни\s+(?:вариант|сборк)|дай\s+(?:несколько|2|3|два|три)|покажи\s+(?:несколько|вариант)|предложи\s+(?:несколько|2|3)/i.test(
+    scan,
+  );
+}
+
+/**
+ * Сколько вариантов сборки вернуть: 1 (бюджет без просьбы о нескольких) или 2–3.
+ */
+function resolveSuggestionVariantCount(budgetRub, userMessage, normalized) {
+  const scan = `${userMessage || ''} ${normalized || ''}`.toLowerCase();
+  if (wantsMultipleBuildVariants(userMessage, normalized)) {
+    if (/три|3\s*вариант|3\s*сборк/i.test(scan)) return 3;
+    return 2;
+  }
+  if (budgetRub >= 50000) return 1;
+  return 1;
+}
+
 function hasExplicitPcBuildIntent(userMessage, normalized) {
   const u = stripChatInput(userMessage).toLowerCase();
   const n = stripChatInput(normalized).toLowerCase();
@@ -417,6 +440,8 @@ module.exports = {
   extractCpuDetailHint,
   isLikelyGreetingOnly,
   isConversationalQuestion,
+  wantsMultipleBuildVariants,
+  resolveSuggestionVariantCount,
   hasExplicitPcBuildIntent,
   levenshtein,
   extractWorkloadHint,
