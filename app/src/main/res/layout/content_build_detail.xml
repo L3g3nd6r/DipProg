@@ -87,6 +87,17 @@
             app:iconGravity="textStart" />
     </LinearLayout>
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/buildDetailAnalyze"
+        style="@style/Widget.Material3.Button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        android:minHeight="50dp"
+        android:text="🤖 ИИ-инспектор сборки"
+        android:textAppearance="@style/TextAppearance.Material3.LabelLarge"
+        app:cornerRadius="12dp" />
+
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/buildDetailCompatibilityCard"
         android:layout_width="match_parent"

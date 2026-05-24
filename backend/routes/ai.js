@@ -1,9 +1,29 @@
 const express = require('express');
 const { stripChatInput } = require('../services/ai-normalize');
-const { getAiResponse } = require('../services/ai-suggest');
+const { getAiResponse, analyzeBuild } = require('../services/ai-suggest');
 
 function createRouter(pool) {
   const router = express.Router();
+
+  /**
+   * POST /api/ai/analyze-build
+   * Body: { build_summary: string }
+   * Возвращает развёрнутый разбор сборки: оценка, узкое место, FPS-прогноз, апгрейд, «персона».
+   */
+  router.post('/analyze-build', async (req, res) => {
+    try {
+      const raw = (req.body && req.body.build_summary) != null ? String(req.body.build_summary) : '';
+      const buildSummary = stripChatInput(raw).trim();
+      if (!buildSummary || buildSummary.length < 10) {
+        return res.status(400).json({ error: 'Передайте описание сборки (build_summary)' });
+      }
+      const analysis = await analyzeBuild(buildSummary);
+      res.json(analysis);
+    } catch (err) {
+      console.error('AI analyze-build error:', err);
+      res.status(500).json({ error: 'Ошибка анализа сборки' });
+    }
+  });
 
   /**
    * POST /api/ai/build-suggestions

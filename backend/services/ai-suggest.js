@@ -1381,4 +1381,291 @@ async function getPresetComponentIds(pool, preset) {
   return built && built.ids ? built.ids : [];
 }
 
-module.exports = { getAiResponse, loadCatalogForAi, getPresetComponentIds };
+// ─── ИИ-инспектор сборки ─────────────────────────────────────────────────────
+
+const BUILD_INSPECTOR_SYSTEM_PROMPT = `Ты — опытный эксперт по железу и игровой производительности. Тебе дают конкретную сборку ПК; нужно вернуть подробный «инспекционный отчёт» строго в JSON, без пояснений и без \`\`\`-обёрток.
+
+Формат ответа (только этот JSON-объект, все поля на русском):
+{
+  "score": число от 1 до 10 (целое или с одним знаком, общая оценка баланса/современности/целесообразности цены),
+  "verdict_title": короткое кодовое имя 2–4 слова (например, "Игровой середняк", "Бюджетный хищник", "Рабочая лошадка"),
+  "verdict": 1–2 предложения общей оценки,
+  "strengths": массив 2–4 коротких пунктов (сильные стороны),
+  "weaknesses": массив 1–3 коротких пунктов (слабые стороны),
+  "bottleneck": { "component": название компонента-узкого места ("ОЗУ 16 ГБ", "CPU Ryzen 5 3600" и т.п.), "explanation": 1 предложение почему },
+  "games": массив 4–6 объектов { "name": "Название игры (1080p|1440p, пресет)", "fps": "ориентировочный диапазон, например 90-110" } — берём реалистичные оценки исходя из GPU/CPU/ОЗУ; включай миксом популярные тяжёлые и киберспортивные игры (Cyberpunk 2077, CS2, GTA V / GTA 6 при наличии, Valorant, Dota 2, Forza Horizon 5, Baldur's Gate 3, Hogwarts Legacy и т.п.),
+  "tasks": { "good_for": массив 2–4 пунктов (для чего хороша), "bad_for": массив 1–3 пунктов (для чего не подходит) },
+  "lifespan_years": строка вида "2-3", "3-4", "5+" — сколько лет сборка останется актуальной для своих задач,
+  "main_upgrade": { "what": что заменить первым, "why": 1 короткое предложение, "approx_cost_rub": приблизительная цена в рублях числом },
+  "persona": 1 ироничное/живое предложение — «характер» сборки
+}
+
+ПРАВИЛА:
+• Только русский язык.
+• FPS оценивай реалистично: учитывай VRAM, частоты GPU/CPU, тип/объём ОЗУ, NVMe vs HDD.
+• Если в сборке явный перекос (топовый GPU + слабый CPU и т.п.) — обязательно отрази в bottleneck и weaknesses.
+• Если объём ОЗУ < 16 ГБ — это узкое место для современных игр.
+• Если GPU отсутствует — оценивай только офис/учёбу/лёгкие задачи.
+• Не выдумывай несуществующих компонентов: имена бери только из переданной сборки.
+• Ответ — ровно один JSON-объект, без \`\`\`-блоков, без префиксов "Ответ:", без эмодзи.`;
+
+function fallbackBuildAnalysis(buildSummary) {
+  const summary = String(buildSummary || '').trim();
+  const lines = summary.split('\n').map(l => l.trim()).filter(Boolean);
+  const total = parseBuildSummaryTotalRub(summary);
+  const lowerSummary = summary.toLowerCase();
+
+  const hasRtx5090 = /5090/.test(lowerSummary);
+  const hasRtx5080 = /5080/.test(lowerSummary);
+  const hasRtx4090 = /4090/.test(lowerSummary);
+  const hasRtx4080 = /4080/.test(lowerSummary);
+  const hasRtx4070 = /4070/.test(lowerSummary);
+  const hasRtx5070 = /5070/.test(lowerSummary);
+  const hasRtx4060 = /4060/.test(lowerSummary);
+  const hasRtx3060 = /3060/.test(lowerSummary);
+  const hasGpu = /(rtx|rx\s*\d|gtx|radeon|видеокарт|geforce)/i.test(lowerSummary);
+
+  const ramMatch = lowerSummary.match(/(\d{1,3})\s*(?:гб|gb).*?(?:озу|ram|ddr)/i)
+    || lowerSummary.match(/(?:озу|ram).*?(\d{1,3})\s*(?:гб|gb)/i)
+    || lowerSummary.match(/(\d{1,3})\s*(?:гб|gb)\s*ddr/i);
+  const ramGb = ramMatch ? parseInt(ramMatch[1], 10) : 0;
+  const has32Ram = ramGb >= 32;
+  const has16Ram = ramGb >= 16;
+
+  let score = 6;
+  let title = 'Сбалансированный середняк';
+  let verdict = 'Сборка выглядит рабочей; подойдёт для основных задач, но без запаса на максимальные настройки.';
+  const strengths = [];
+  const weaknesses = [];
+  let bottleneckComp = 'ОЗУ';
+  let bottleneckExpl = 'Без 32 ГБ современные тяжёлые игры и фоновые приложения могут тормозить.';
+
+  if (hasRtx5090 || hasRtx4090) {
+    score = 9.5;
+    title = 'Топовый монстр';
+    verdict = 'Флагманский GPU и мощные сопутствующие компоненты — сборка для 4K-гейминга и тяжёлой работы.';
+    strengths.push('Топовый GPU тянет 4K и тяжёлые игры');
+    if (!has32Ram) {
+      bottleneckComp = 'ОЗУ';
+      bottleneckExpl = 'К такому GPU стоит брать минимум 32 ГБ DDR5.';
+    } else {
+      bottleneckComp = 'Накопитель';
+      bottleneckExpl = 'Для топовой сборки оптимален быстрый NVMe Gen4/Gen5 от 1 ТБ.';
+    }
+  } else if (hasRtx5080 || hasRtx4080) {
+    score = 9;
+    title = 'Уверенный флагман';
+    verdict = 'Сборка спокойно тянет 1440p ультра и претендует на 4K в большинстве игр.';
+    strengths.push('Сильный GPU класса high-end');
+  } else if (hasRtx5070 || hasRtx4070) {
+    score = 8;
+    title = 'Игровой охотник';
+    verdict = 'Отличная сборка для 1440p ультра и стриминга. С запасом на 3–4 года.';
+    strengths.push('GPU подходит для 1440p ультра');
+  } else if (hasRtx4060 || hasRtx3060) {
+    score = 7;
+    title = 'Боец среднего класса';
+    verdict = 'Уверенное 1080p и комфортное 1440p в большинстве игр с настройками «высокие».';
+    strengths.push('Сбалансированная связка CPU+GPU для 1080p/1440p');
+  } else if (!hasGpu) {
+    score = 4;
+    title = 'Офисный помощник';
+    verdict = 'Сборка для учёбы, офиса и нетребовательных задач. В игры — на минималках.';
+    strengths.push('Подходит для офиса и учёбы');
+    weaknesses.push('Без дискретной видеокарты — не для современных игр');
+    bottleneckComp = 'Видеокарта';
+    bottleneckExpl = 'Без дискретного GPU современные игры запускаются с трудом.';
+  }
+
+  if (has32Ram) strengths.push('32 ГБ ОЗУ — запас для игр и работы');
+  if (/(nvme|ssd)/i.test(lowerSummary)) strengths.push('Быстрый SSD — мгновенная загрузка системы и игр');
+  if (/(80\d|85\d|90\d|10\d{2})\s*(?:w|вт)/i.test(lowerSummary)) strengths.push('Запас по мощности БП');
+
+  if (!has16Ram && ramGb > 0) {
+    weaknesses.push(`ОЗУ ${ramGb} ГБ — мало даже для офиса и Chrome`);
+    score = Math.max(2, score - 2);
+  } else if (!has32Ram && hasGpu) {
+    weaknesses.push('16 ГБ ОЗУ — на грани для современных игр');
+  }
+
+  if (hasRtx4090 || hasRtx5090) {
+    if (/(ryzen\s*5\b|i5\b|3600|5500|5600\b)/i.test(lowerSummary)) {
+      weaknesses.push('Слабоватый CPU для такого GPU — возможен bottleneck');
+      bottleneckComp = 'Процессор';
+      bottleneckExpl = 'CPU начального уровня может не успевать за топовым GPU.';
+      score = Math.max(score - 1.5, 6);
+    }
+  }
+
+  const games = [];
+  if (hasRtx5090 || hasRtx4090) {
+    games.push({ name: 'Cyberpunk 2077 (4K, ультра+RT)', fps: '70-90' });
+    games.push({ name: 'CS2 (1440p)', fps: '400+' });
+    games.push({ name: 'Forza Horizon 5 (4K, ультра)', fps: '120-150' });
+    games.push({ name: 'Baldur\'s Gate 3 (4K, ультра)', fps: '90-110' });
+    games.push({ name: 'GTA V (4K, ультра)', fps: '160-180' });
+  } else if (hasRtx5080 || hasRtx4080) {
+    games.push({ name: 'Cyberpunk 2077 (1440p, ультра+RT)', fps: '90-110' });
+    games.push({ name: 'CS2 (1440p)', fps: '350+' });
+    games.push({ name: 'Forza Horizon 5 (1440p, ультра)', fps: '130-150' });
+    games.push({ name: 'Hogwarts Legacy (1440p, ультра)', fps: '90-110' });
+    games.push({ name: 'GTA V (1440p, ультра)', fps: '180-200' });
+  } else if (hasRtx5070 || hasRtx4070) {
+    games.push({ name: 'Cyberpunk 2077 (1440p, высокие)', fps: '75-90' });
+    games.push({ name: 'CS2 (1440p)', fps: '280-320' });
+    games.push({ name: 'Forza Horizon 5 (1440p, ультра)', fps: '100-120' });
+    games.push({ name: 'Dota 2 (1440p)', fps: '180-220' });
+    games.push({ name: 'GTA V (1440p, ультра)', fps: '130-160' });
+  } else if (hasRtx4060 || hasRtx3060) {
+    games.push({ name: 'Cyberpunk 2077 (1080p, высокие)', fps: '65-80' });
+    games.push({ name: 'CS2 (1080p)', fps: '250-300' });
+    games.push({ name: 'Forza Horizon 5 (1080p, ультра)', fps: '90-110' });
+    games.push({ name: 'Valorant (1080p)', fps: '300+' });
+    games.push({ name: 'GTA V (1080p, ультра)', fps: '110-130' });
+  } else if (!hasGpu) {
+    games.push({ name: 'CS2 (1080p, низкие)', fps: '40-60' });
+    games.push({ name: 'Valorant (1080p, низкие)', fps: '80-120' });
+    games.push({ name: 'Dota 2 (1080p, низкие)', fps: '50-70' });
+    games.push({ name: 'GTA V (1080p, низкие)', fps: '30-50' });
+  } else {
+    games.push({ name: 'Cyberpunk 2077 (1080p, средние)', fps: '50-65' });
+    games.push({ name: 'CS2 (1080p)', fps: '200+' });
+    games.push({ name: 'Dota 2 (1080p)', fps: '140-180' });
+    games.push({ name: 'Valorant (1080p)', fps: '250+' });
+  }
+
+  const tasks = {
+    good_for: hasGpu
+      ? ['Игры на 1080p/1440p', 'Стриминг через NVENC/AMF', 'Учёба и офис']
+      : ['Офис, учёба, документы', 'Браузер и видео'],
+    bad_for: hasRtx5090 || hasRtx4090
+      ? ['Тихий компактный ПК (mini-ITX)']
+      : !hasGpu
+        ? ['Современные игры на высоких настройках', 'Профессиональный монтаж и рендер']
+        : ['Профессиональный 4K-монтаж', '3D-рендер в реальном времени'],
+  };
+
+  let lifespan = '2-3';
+  if (hasRtx5090 || hasRtx4090) lifespan = '5+';
+  else if (hasRtx5080 || hasRtx4080 || hasRtx5070) lifespan = '4-5';
+  else if (hasRtx4070 || hasRtx4060 || hasRtx3060) lifespan = '3-4';
+  else if (!hasGpu) lifespan = '2-3';
+
+  const mainUpgrade = !has16Ram
+    ? { what: 'Добавить ОЗУ до 16 ГБ', why: 'Сейчас не хватает даже на современный браузер.', approx_cost_rub: 3500 }
+    : (!has32Ram && hasGpu)
+      ? { what: 'Поднять ОЗУ до 32 ГБ', why: 'Современные игры начинают упираться в 16 ГБ.', approx_cost_rub: 4500 }
+      : { what: 'Поставить NVMe 1 ТБ Gen4', why: 'Быстрая загрузка игр и системы.', approx_cost_rub: 7000 };
+
+  const persona = hasRtx5090 || hasRtx4090
+    ? 'Этот ПК ничего не доказывает — он просто молча тянет всё, что вы запустите.'
+    : hasRtx4070 || hasRtx5070
+      ? 'Тихий охотник 1440p: знает своё дело и не выпендривается.'
+      : hasGpu
+        ? 'Аккуратный середняк — без понтов, но в популярные игры играет без боли.'
+        : 'Скромный труженик офиса: лекции, Excel, YouTube — его стихия.';
+
+  return {
+    score,
+    verdict_title: title,
+    verdict,
+    strengths: strengths.slice(0, 4),
+    weaknesses: weaknesses.slice(0, 3),
+    bottleneck: { component: bottleneckComp, explanation: bottleneckExpl },
+    games,
+    tasks,
+    lifespan_years: lifespan,
+    main_upgrade: mainUpgrade,
+    persona,
+    total_rub: total,
+    source: 'fallback',
+  };
+}
+
+function sanitizeAnalysis(parsed, buildSummary) {
+  const fb = fallbackBuildAnalysis(buildSummary);
+  if (!parsed || typeof parsed !== 'object') return fb;
+
+  const out = { ...fb };
+  if (typeof parsed.score === 'number' && parsed.score >= 1 && parsed.score <= 10) out.score = Math.round(parsed.score * 10) / 10;
+  if (typeof parsed.verdict_title === 'string' && parsed.verdict_title.trim()) out.verdict_title = parsed.verdict_title.trim().slice(0, 60);
+  if (typeof parsed.verdict === 'string' && parsed.verdict.trim()) out.verdict = parsed.verdict.trim().slice(0, 400);
+  if (Array.isArray(parsed.strengths)) {
+    const arr = parsed.strengths.filter(s => typeof s === 'string' && s.trim()).map(s => s.trim().slice(0, 160));
+    if (arr.length > 0) out.strengths = arr.slice(0, 4);
+  }
+  if (Array.isArray(parsed.weaknesses)) {
+    const arr = parsed.weaknesses.filter(s => typeof s === 'string' && s.trim()).map(s => s.trim().slice(0, 160));
+    if (arr.length > 0) out.weaknesses = arr.slice(0, 3);
+  }
+  if (parsed.bottleneck && typeof parsed.bottleneck === 'object') {
+    const comp = typeof parsed.bottleneck.component === 'string' ? parsed.bottleneck.component.trim() : '';
+    const expl = typeof parsed.bottleneck.explanation === 'string' ? parsed.bottleneck.explanation.trim() : '';
+    if (comp) out.bottleneck = { component: comp.slice(0, 80), explanation: expl.slice(0, 200) };
+  }
+  if (Array.isArray(parsed.games)) {
+    const arr = parsed.games
+      .filter(g => g && typeof g === 'object' && typeof g.name === 'string' && typeof g.fps === 'string')
+      .slice(0, 6)
+      .map(g => ({ name: g.name.trim().slice(0, 80), fps: g.fps.trim().slice(0, 40) }));
+    if (arr.length > 0) out.games = arr;
+  }
+  if (parsed.tasks && typeof parsed.tasks === 'object') {
+    const good = Array.isArray(parsed.tasks.good_for) ? parsed.tasks.good_for.filter(s => typeof s === 'string').map(s => s.trim().slice(0, 100)) : [];
+    const bad = Array.isArray(parsed.tasks.bad_for) ? parsed.tasks.bad_for.filter(s => typeof s === 'string').map(s => s.trim().slice(0, 100)) : [];
+    if (good.length > 0 || bad.length > 0) {
+      out.tasks = {
+        good_for: good.length > 0 ? good.slice(0, 4) : fb.tasks.good_for,
+        bad_for: bad.length > 0 ? bad.slice(0, 3) : fb.tasks.bad_for,
+      };
+    }
+  }
+  if (typeof parsed.lifespan_years === 'string' && parsed.lifespan_years.trim()) out.lifespan_years = parsed.lifespan_years.trim().slice(0, 20);
+  if (parsed.main_upgrade && typeof parsed.main_upgrade === 'object') {
+    const what = typeof parsed.main_upgrade.what === 'string' ? parsed.main_upgrade.what.trim() : '';
+    const why = typeof parsed.main_upgrade.why === 'string' ? parsed.main_upgrade.why.trim() : '';
+    const cost = Number(parsed.main_upgrade.approx_cost_rub);
+    if (what) {
+      out.main_upgrade = {
+        what: what.slice(0, 120),
+        why: why.slice(0, 200),
+        approx_cost_rub: Number.isFinite(cost) && cost > 0 ? Math.round(cost) : fb.main_upgrade.approx_cost_rub,
+      };
+    }
+  }
+  if (typeof parsed.persona === 'string' && parsed.persona.trim()) out.persona = parsed.persona.trim().slice(0, 240);
+  out.source = 'ai';
+  return out;
+}
+
+/**
+ * Расширенный анализ конкретной сборки: оценка, узкое место, FPS-прогноз, апгрейд, «персона».
+ * Возвращает структурированный объект (см. sanitizeAnalysis).
+ */
+async function analyzeBuild(buildSummary) {
+  const summary = String(buildSummary || '').trim();
+  if (!summary) {
+    throw new Error('Пустое описание сборки');
+  }
+  const userMsg = `Сборка пользователя:\n${summary}\n\nВерни JSON-отчёт строго в указанном формате.`;
+  let raw = null;
+  if (OPENAI_API_KEY) {
+    raw = await callOpenAiCompatible(BUILD_INSPECTOR_SYSTEM_PROMPT, userMsg, null, {
+      temperature: 0.55,
+      maxTokens: 1400,
+    });
+  }
+  if (!raw) {
+    raw = await callOllama(`${BUILD_INSPECTOR_SYSTEM_PROMPT}\n\n${userMsg}`, {
+      temperature: 0.55,
+      numPredict: 1100,
+    });
+  }
+  let parsed = null;
+  if (raw && typeof raw === 'string') {
+    parsed = extractJsonFromResponse(raw.trim());
+  }
+  return sanitizeAnalysis(parsed, summary);
+}
+
+module.exports = { getAiResponse, loadCatalogForAi, getPresetComponentIds, analyzeBuild };

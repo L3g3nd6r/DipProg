@@ -621,6 +621,7 @@ class MainActivity : AppCompatActivity() {
         val buildDetailAddBuildToCart = buildPage.findViewById<MaterialButton>(R.id.buildDetailAddBuildToCart)
         val buildDetailShare = buildPage.findViewById<MaterialButton>(R.id.buildDetailShare)
         val buildDetailDuplicate = buildPage.findViewById<MaterialButton>(R.id.buildDetailDuplicate)
+        val buildDetailAnalyze = buildPage.findViewById<MaterialButton>(R.id.buildDetailAnalyze)
         val cartRecycler = buildPage.findViewById<RecyclerView>(R.id.cartRecyclerView)
         val cartEmptyCard = buildPage.findViewById<View>(R.id.cartEmptyCard)
         val cartTotalText = buildPage.findViewById<TextView>(R.id.cartTotalText)
@@ -1147,6 +1148,15 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             shareBuildText(d)
+        }
+
+        buildDetailAnalyze.setOnClickListener {
+            val d = lastBuildDetail
+            if (d == null) {
+                Snackbar.make(buildPage, "Подождите загрузки сборки", Snackbar.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            runAiBuildInspector(d)
         }
 
         buildDetailDuplicate.setOnClickListener {
@@ -2396,6 +2406,187 @@ class MainActivity : AppCompatActivity() {
         buildListInclude.visibility = View.VISIBLE
         cartFab.visibility = View.VISIBLE
         syncCartFabBottomMargin()
+    }
+
+    private fun buildSummaryFor(detail: BuildsApi.BuildDetail): String {
+        val lines = mutableListOf<String>()
+        lines.add("Сборка «${detail.name}»")
+        detail.components?.forEach { c ->
+            val cat = c.category_name?.takeIf { it.isNotBlank() }?.let { "$it: " } ?: ""
+            val price = c.price?.takeIf { it.isNotBlank() }?.let { " — $it ₽" } ?: ""
+            lines.add("• $cat${c.name} ×${c.quantity}$price")
+        }
+        detail.total_price?.let { lines.add("Итого: ${priceStr(it)}") }
+        return lines.joinToString("\n")
+    }
+
+    private fun runAiBuildInspector(detail: BuildsApi.BuildDetail) {
+        val summary = buildSummaryFor(detail)
+
+        val loadingView = LayoutInflater.from(this).inflate(R.layout.dialog_ai_inspector_loading, null, false)
+        val loadingDialog = MaterialAlertDialogBuilder(this)
+            .setView(loadingView)
+            .setCancelable(false)
+            .create()
+        loadingDialog.show()
+
+        Thread {
+            val result = BuildsApi.analyzeBuild(summary)
+            runOnUiThread {
+                runCatching { loadingDialog.dismiss() }
+                when (result) {
+                    is BuildsApi.ApiResult.Success -> showAiBuildAnalysisDialog(detail.name, result.data)
+                    is BuildsApi.ApiResult.Error ->
+                        Snackbar.make(window.decorView, "ИИ-инспектор: ${result.message}", Snackbar.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun showAiBuildAnalysisDialog(buildName: String, a: BuildsApi.BuildAnalysis) {
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_ai_inspector_report, null, false)
+
+        view.findViewById<TextView>(R.id.aiInspectorBuildName).text = "Сборка «$buildName»"
+
+        val scoreNum = (a.score?.toDouble() ?: 0.0)
+        val scoreText = if (scoreNum % 1.0 == 0.0) scoreNum.toInt().toString() else String.format("%.1f", scoreNum)
+        view.findViewById<TextView>(R.id.aiInspectorScore).text = "$scoreText/10"
+        view.findViewById<TextView>(R.id.aiInspectorTitle).text = a.verdict_title?.takeIf { it.isNotBlank() } ?: "Оценка сборки"
+        view.findViewById<TextView>(R.id.aiInspectorVerdict).text = a.verdict?.takeIf { it.isNotBlank() } ?: ""
+
+        fillBulletBlock(
+            view.findViewById(R.id.aiInspectorStrengthsBlock),
+            view.findViewById(R.id.aiInspectorStrengths),
+            a.strengths,
+            prefix = "✓ "
+        )
+        fillBulletBlock(
+            view.findViewById(R.id.aiInspectorWeaknessesBlock),
+            view.findViewById(R.id.aiInspectorWeaknesses),
+            a.weaknesses,
+            prefix = "• "
+        )
+
+        val bottleneckBlock = view.findViewById<View>(R.id.aiInspectorBottleneckBlock)
+        val bottleneckText = view.findViewById<TextView>(R.id.aiInspectorBottleneck)
+        val bn = a.bottleneck
+        val bnComp = bn?.component?.trim().orEmpty()
+        val bnExpl = bn?.explanation?.trim().orEmpty()
+        if (bnComp.isNotEmpty() || bnExpl.isNotEmpty()) {
+            bottleneckBlock.visibility = View.VISIBLE
+            bottleneckText.text = buildString {
+                if (bnComp.isNotEmpty()) append(bnComp)
+                if (bnExpl.isNotEmpty()) {
+                    if (isNotEmpty()) append(" — ")
+                    append(bnExpl)
+                }
+            }
+        } else {
+            bottleneckBlock.visibility = View.GONE
+        }
+
+        val gamesBlock = view.findViewById<View>(R.id.aiInspectorGamesBlock)
+        val gamesContainer = view.findViewById<LinearLayout>(R.id.aiInspectorGames)
+        gamesContainer.removeAllViews()
+        val games = a.games.orEmpty().filter { !it.name.isNullOrBlank() && !it.fps.isNullOrBlank() }
+        if (games.isNotEmpty()) {
+            gamesBlock.visibility = View.VISIBLE
+            for (g in games) {
+                val row = LayoutInflater.from(this).inflate(R.layout.item_ai_inspector_game, gamesContainer, false)
+                row.findViewById<TextView>(R.id.gameName).text = g.name
+                row.findViewById<TextView>(R.id.gameFps).text = "${g.fps} FPS"
+                gamesContainer.addView(row)
+            }
+        } else {
+            gamesBlock.visibility = View.GONE
+        }
+
+        fillBulletBlock(
+            view.findViewById(R.id.aiInspectorGoodForBlock),
+            view.findViewById(R.id.aiInspectorGoodFor),
+            a.tasks?.good_for,
+            prefix = "✓ "
+        )
+        fillBulletBlock(
+            view.findViewById(R.id.aiInspectorBadForBlock),
+            view.findViewById(R.id.aiInspectorBadFor),
+            a.tasks?.bad_for,
+            prefix = "✗ "
+        )
+
+        val lifespanBlock = view.findViewById<View>(R.id.aiInspectorLifespanBlock)
+        val lifespanText = view.findViewById<TextView>(R.id.aiInspectorLifespan)
+        val lifespan = a.lifespan_years?.trim().orEmpty()
+        if (lifespan.isNotEmpty()) {
+            lifespanBlock.visibility = View.VISIBLE
+            lifespanText.text = "$lifespan ${pluralYears(lifespan)}"
+        } else {
+            lifespanBlock.visibility = View.GONE
+        }
+
+        val upgradeBlock = view.findViewById<View>(R.id.aiInspectorUpgradeBlock)
+        val upgradeWhat = view.findViewById<TextView>(R.id.aiInspectorUpgradeWhat)
+        val upgradeWhy = view.findViewById<TextView>(R.id.aiInspectorUpgradeWhy)
+        val upgradeCost = view.findViewById<TextView>(R.id.aiInspectorUpgradeCost)
+        val up = a.main_upgrade
+        if (up != null && !up.what.isNullOrBlank()) {
+            upgradeBlock.visibility = View.VISIBLE
+            upgradeWhat.text = up.what
+            upgradeWhy.text = up.why?.takeIf { it.isNotBlank() } ?: ""
+            upgradeWhy.visibility = if (upgradeWhy.text.isNullOrBlank()) View.GONE else View.VISIBLE
+            val cost = up.approx_cost_rub?.toLong() ?: 0L
+            if (cost > 0) {
+                upgradeCost.visibility = View.VISIBLE
+                upgradeCost.text = "≈ ${String.format("%,d", cost).replace(',', ' ')} ₽"
+            } else {
+                upgradeCost.visibility = View.GONE
+            }
+        } else {
+            upgradeBlock.visibility = View.GONE
+        }
+
+        val personaBlock = view.findViewById<View>(R.id.aiInspectorPersonaBlock)
+        val personaText = view.findViewById<TextView>(R.id.aiInspectorPersona)
+        val persona = a.persona?.trim().orEmpty()
+        if (persona.isNotEmpty()) {
+            personaBlock.visibility = View.VISIBLE
+            personaText.text = "«$persona»"
+        } else {
+            personaBlock.visibility = View.GONE
+        }
+
+        val sourceBadge = view.findViewById<TextView>(R.id.aiInspectorSourceBadge)
+        sourceBadge.text = if (a.source == "ai") "На основе ответа нейросети" else "Резервный анализ (нейросеть недоступна)"
+
+        MaterialAlertDialogBuilder(this)
+            .setView(view)
+            .setPositiveButton("Закрыть", null)
+            .show()
+    }
+
+    private fun fillBulletBlock(
+        block: View,
+        target: TextView,
+        items: List<String>?,
+        prefix: String
+    ) {
+        val list = items.orEmpty().map { it.trim() }.filter { it.isNotEmpty() }
+        if (list.isEmpty()) {
+            block.visibility = View.GONE
+            return
+        }
+        block.visibility = View.VISIBLE
+        target.text = list.joinToString("\n") { "$prefix$it" }
+    }
+
+    private fun pluralYears(span: String): String {
+        val firstDigit = span.firstOrNull { it.isDigit() }?.digitToIntOrNull() ?: return "лет"
+        return when {
+            span.contains("+") -> "лет"
+            firstDigit in 2..4 -> "года"
+            firstDigit == 1 -> "год"
+            else -> "лет"
+        }
     }
 
     private fun shareBuildText(detail: BuildsApi.BuildDetail) {

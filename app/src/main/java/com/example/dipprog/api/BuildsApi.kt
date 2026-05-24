@@ -458,6 +458,46 @@ object BuildsApi {
         }
     }
 
+    data class BuildAnalysisBottleneck(val component: String?, val explanation: String?)
+    data class BuildAnalysisGame(val name: String?, val fps: String?)
+    data class BuildAnalysisTasks(val good_for: List<String>?, val bad_for: List<String>?)
+    data class BuildAnalysisUpgrade(val what: String?, val why: String?, val approx_cost_rub: Number?)
+    data class BuildAnalysis(
+        val score: Number?,
+        val verdict_title: String?,
+        val verdict: String?,
+        val strengths: List<String>?,
+        val weaknesses: List<String>?,
+        val bottleneck: BuildAnalysisBottleneck?,
+        val games: List<BuildAnalysisGame>?,
+        val tasks: BuildAnalysisTasks?,
+        val lifespan_years: String?,
+        val main_upgrade: BuildAnalysisUpgrade?,
+        val persona: String?,
+        val total_rub: Number? = null,
+        val source: String? = null
+    )
+
+    fun analyzeBuild(buildSummary: String): ApiResult<BuildAnalysis> {
+        if (buildSummary.isBlank()) return ApiResult.Error("Пустое описание сборки")
+        val body = gson.toJson(mapOf("build_summary" to buildSummary))
+        val req = Request.Builder().url("$BASE_URL/api/ai/analyze-build").post(body.toRequestBody(jsonType)).build()
+        return try {
+            val resp = aiClient.newCall(req).execute()
+            val bodyStr = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) {
+                return ApiResult.Error(
+                    bodyErrorOrNull(bodyStr, resp.code) ?: "Ошибка ${resp.code}"
+                )
+            }
+            val trimmed = bodyStr.trim()
+            if (!trimmed.startsWith("{")) return ApiResult.Error("Сервер вернул некорректный ответ")
+            ApiResult.Success(gson.fromJson(trimmed, BuildAnalysis::class.java))
+        } catch (e: Exception) {
+            ApiResult.Error(e.message ?: "Нет связи с сервером")
+        }
+    }
+
     fun createBuildFromSuggestion(token: String?, name: String, componentIds: List<Int>): ApiResult<Build> {
         if (token.isNullOrBlank()) return ApiResult.Error("Требуется авторизация")
         val body = gson.toJson(mapOf("name" to name, "component_ids" to componentIds))
