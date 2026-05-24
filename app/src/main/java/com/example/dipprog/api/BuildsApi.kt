@@ -478,9 +478,19 @@ object BuildsApi {
         val source: String? = null
     )
 
-    fun analyzeBuild(buildSummary: String): ApiResult<BuildAnalysis> {
+    fun analyzeBuild(
+        buildSummary: String,
+        categorySlugs: List<String>,
+        componentCount: Int
+    ): ApiResult<BuildAnalysis> {
         if (buildSummary.isBlank()) return ApiResult.Error("Пустое описание сборки")
-        val body = gson.toJson(mapOf("build_summary" to buildSummary))
+        val body = gson.toJson(
+            mapOf(
+                "build_summary" to buildSummary,
+                "category_slugs" to categorySlugs,
+                "component_count" to componentCount
+            )
+        )
         val req = Request.Builder().url("$BASE_URL/api/ai/analyze-build").post(body.toRequestBody(jsonType)).build()
         return try {
             val resp = aiClient.newCall(req).execute()

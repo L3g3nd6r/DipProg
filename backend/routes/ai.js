@@ -1,6 +1,7 @@
 const express = require('express');
 const { stripChatInput } = require('../services/ai-normalize');
 const { getAiResponse, analyzeBuild } = require('../services/ai-suggest');
+const { checkBuildInspectorEligibility } = require('../services/build-inspector-eligibility');
 
 function createRouter(pool) {
   const router = express.Router();
@@ -16,6 +17,15 @@ function createRouter(pool) {
       const buildSummary = stripChatInput(raw).trim();
       if (!buildSummary || buildSummary.length < 10) {
         return res.status(400).json({ error: 'Передайте описание сборки (build_summary)' });
+      }
+      const categorySlugs = Array.isArray(req.body?.category_slugs) ? req.body.category_slugs : [];
+      const componentCount = Number(req.body?.component_count);
+      const eligibility = checkBuildInspectorEligibility(
+        categorySlugs,
+        Number.isFinite(componentCount) && componentCount > 0 ? componentCount : categorySlugs.length,
+      );
+      if (!eligibility.ok) {
+        return res.status(400).json({ error: eligibility.error });
       }
       const analysis = await analyzeBuild(buildSummary);
       res.json(analysis);

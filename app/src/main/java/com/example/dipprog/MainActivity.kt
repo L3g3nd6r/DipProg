@@ -56,6 +56,7 @@ import com.example.dipprog.auth.SessionManager
 import com.example.dipprog.guide.BeginnerGuide
 import com.example.dipprog.guide.GuideAdapter
 import com.example.dipprog.guide.GuideCategoryAdapter
+import com.example.dipprog.util.BuildInspectorEligibility
 import com.example.dipprog.util.ComponentSpecFormatter
 import com.example.dipprog.util.launchIo
 import android.widget.ArrayAdapter
@@ -866,6 +867,7 @@ class MainActivity : AppCompatActivity() {
                             } else {
                                 buildDetailMissingCard.visibility = View.GONE
                             }
+                            syncBuildInspectorButton(b.components ?: emptyList())
                             syncCartFabBottomMargin()
                         }
                         is BuildsApi.ApiResult.Error -> {
@@ -2420,8 +2422,27 @@ class MainActivity : AppCompatActivity() {
         return lines.joinToString("\n")
     }
 
+    private fun syncBuildInspectorButton(components: List<BuildsApi.BuildComponent>) {
+        val btn = buildPage.findViewById<MaterialButton>(R.id.buildDetailAnalyze) ?: return
+        val eligibility = BuildInspectorEligibility.check(components)
+        btn.isEnabled = eligibility.allowed
+        btn.alpha = if (eligibility.allowed) 1f else 0.45f
+    }
+
     private fun runAiBuildInspector(detail: BuildsApi.BuildDetail) {
+        val components = detail.components ?: emptyList()
+        val eligibility = BuildInspectorEligibility.check(components)
+        if (!eligibility.allowed) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Сборка не готова к анализу")
+                .setMessage(eligibility.message)
+                .setPositiveButton("Понятно", null)
+                .show()
+            return
+        }
+
         val summary = buildSummaryFor(detail)
+        val slugs = components.mapNotNull { it.category_slug }
 
         val loadingView = LayoutInflater.from(this).inflate(R.layout.dialog_ai_inspector_loading, null, false)
         val loadingDialog = MaterialAlertDialogBuilder(this)
@@ -2431,7 +2452,7 @@ class MainActivity : AppCompatActivity() {
         loadingDialog.show()
 
         Thread {
-            val result = BuildsApi.analyzeBuild(summary)
+            val result = BuildsApi.analyzeBuild(summary, slugs, components.size)
             runOnUiThread {
                 runCatching { loadingDialog.dismiss() }
                 when (result) {
